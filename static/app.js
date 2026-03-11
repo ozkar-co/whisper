@@ -48,8 +48,8 @@ function showResult(text, metadata) {
   copyBtn.disabled = !text;
 
   const bits = [];
-  if (metadata?.backend) {
-    bits.push(`backend: ${metadata.backend}`);
+  if (metadata?.model) {
+    bits.push(`modelo: ${metadata.model}`);
   }
   if (metadata?.language) {
     bits.push(`language: ${metadata.language}`);
@@ -62,12 +62,6 @@ function showResult(text, metadata) {
   }
   if (typeof metadata?.words === "number") {
     bits.push(`palabras: ${metadata.words}`);
-  }
-  if (typeof metadata?.characters === "number") {
-    bits.push(`caracteres: ${metadata.characters}`);
-  }
-  if (typeof metadata?.lines === "number") {
-    bits.push(`lineas: ${metadata.lines}`);
   }
 
   if (bits.length > 0) {
@@ -139,13 +133,11 @@ async function transcribeBlob(blob, fileNameHint = "recording.webm") {
     const textStats = report.text_stats || report.stats || {};
 
     showResult(payload.text, {
-      backend: payload.backend,
+      model: payload.model || payload.whisper_model,
       language: payload.language,
       fileSizeHuman: report.file_size_human || report.fileSizeHuman || report.size_human,
       transcriptionSeconds: toNumber(report.transcription_seconds ?? report.transcriptionSeconds),
       words: toNumber(textStats.words),
-      characters: toNumber(textStats.characters),
-      lines: toNumber(textStats.lines),
     });
     recordStatus.textContent = "Transcripcion completada";
   } catch (error) {

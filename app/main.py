@@ -156,6 +156,7 @@ async def transcribe(request: Request, audio: UploadFile = File(...)) -> dict[st
             "success": True,
             "text": text,
             "language": result.get("language"),
+            "model": settings.whisper_model,
             "backend": result.get("backend"),
             "report": {
                 "file_size_bytes": consumed,
