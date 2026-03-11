@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Whisper Transcription</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&family=Fraunces:opsz,wght@9..144,500;9..144,700&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="/static/styles.css" />
+  </head>
+  <body>
+    <div class="bg-shape bg-shape-1"></div>
+    <div class="bg-shape bg-shape-2"></div>
+
+    <main class="container">
+      <header class="hero">
+        <p class="kicker">Local Whisper</p>
+        <h1>Upload or Record, Then Transcribe</h1>
+        <p class="subtitle">
+          Simple private transcription running on your own server.
+        </p>
+      </header>
+
+      <section class="panel">
+        <div class="mode-row" role="tablist" aria-label="Audio mode">
+          <button class="mode-btn active" id="mode-upload" type="button">Upload Audio</button>
+          <button class="mode-btn" id="mode-record" type="button">Record Audio</button>
+        </div>
+
+        <div class="mode-content active" id="upload-section">
+          <label class="file-drop" for="audio-file-input">
+            <input id="audio-file-input" type="file" accept="audio/*" />
+            <span class="file-title">Choose an audio file</span>
+            <span class="file-meta">Supported: webm, wav, m4a, mp3, ogg, flac</span>
+          </label>
+          <p class="hint" id="upload-file-name">No file selected</p>
+        </div>
+
+        <div class="mode-content" id="record-section">
+          <div class="record-controls">
+            <button id="start-record" type="button" class="btn secondary">Start Recording</button>
+            <button id="stop-record" type="button" class="btn secondary" disabled>Stop</button>
+          </div>
+          <p class="hint" id="record-status">Recorder idle</p>
+        </div>
+
+        <div class="submit-row">
+          <button id="transcribe-btn" type="button" class="btn primary" disabled>Transcribe</button>
+          <span id="loading" class="loading hidden">Transcribing...</span>
+        </div>
+      </section>
+
+      <section class="panel result-panel">
+        <h2>Result</h2>
+        <p id="result-empty" class="hint">Your transcription will appear here.</p>
+        <pre id="result-text" class="hidden"></pre>
+        <p id="result-meta" class="hint hidden"></p>
+        <p id="result-error" class="error hidden"></p>
+      </section>
+    </main>
+
+    <script src="/static/app.js" type="module"></script>
+  </body>
+</html>
