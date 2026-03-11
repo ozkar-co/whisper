@@ -3,10 +3,11 @@
   --bg-2: #ddd4bd;
   --ink: #1d1a15;
   --ink-soft: #4f4638;
-  --accent: #b14217;
-  --accent-2: #1f6a61;
-  --panel: rgba(255, 249, 238, 0.83);
+  --panel: rgba(255, 249, 238, 0.85);
   --border: rgba(29, 26, 21, 0.14);
+  --danger: #c72626;
+  --danger-dark: #9f1717;
+  --action: #1f6a61;
 }
 
 * {
@@ -49,31 +50,19 @@ body {
 }
 
 .container {
-  width: min(760px, calc(100% - 2rem));
-  margin: 2.4rem auto;
+  width: min(720px, calc(100% - 1.1rem));
+  margin: 1rem auto 1.2rem;
   position: relative;
   z-index: 1;
   animation: float-in 460ms ease-out;
 }
 
 .hero h1 {
-  margin: 0;
+  margin: 0 0 0.8rem;
   font-family: "Fraunces", serif;
-  font-size: clamp(1.9rem, 4.8vw, 3rem);
+  font-size: clamp(2rem, 6vw, 3.4rem);
   line-height: 1.08;
-}
-
-.kicker {
-  margin: 0 0 0.5rem;
-  font-weight: 700;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: var(--accent-2);
-}
-
-.subtitle {
-  color: var(--ink-soft);
-  margin: 0.75rem 0 1.5rem;
+  text-align: center;
 }
 
 .panel {
@@ -89,104 +78,121 @@ body {
   margin-top: 1rem;
 }
 
-.mode-row {
+.recorder-panel {
+  position: relative;
+  min-height: 18rem;
   display: flex;
-  gap: 0.6rem;
+  align-items: center;
+  justify-content: center;
 }
 
-.mode-btn {
+.upload-corner {
+  position: absolute;
+  top: 0.9rem;
+  right: 0.9rem;
+}
+
+.upload-corner input {
+  display: none;
+}
+
+.upload-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: #fff;
   border: 1px solid var(--border);
-  background: #fff6e7;
-  color: var(--ink-soft);
-  padding: 0.55rem 0.95rem;
   border-radius: 999px;
-  cursor: pointer;
-  transition: transform 150ms ease, color 150ms ease, border-color 150ms ease;
-}
-
-.mode-btn.active {
-  color: var(--ink);
-  border-color: rgba(177, 66, 23, 0.5);
-  transform: translateY(-1px);
-}
-
-.mode-content {
-  display: none;
-  margin-top: 0.9rem;
-}
-
-.mode-content.active {
-  display: block;
-}
-
-.file-drop {
-  display: block;
-  border: 2px dashed rgba(31, 106, 97, 0.35);
-  background: #fffdf8;
-  border-radius: 0.85rem;
-  padding: 1.2rem;
+  padding: 0.38rem 0.8rem;
+  font-size: 0.85rem;
+  font-weight: 700;
   cursor: pointer;
 }
 
-.file-drop input {
-  display: none;
+.recorder-wrap {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.9rem;
+  text-align: center;
 }
 
-.file-title {
-  display: block;
+.record-btn {
+  width: min(48vw, 180px);
+  aspect-ratio: 1 / 1;
+  border-radius: 999px;
+  border: 6px solid #f9d6d6;
+  background: radial-gradient(circle at 30% 25%, #ec5e5e, var(--danger));
+  color: #fff;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 20px 42px rgba(112, 20, 20, 0.28);
+  cursor: pointer;
+  transition: transform 140ms ease, box-shadow 140ms ease, background 140ms ease;
+}
+
+.record-btn:active {
+  transform: scale(0.97);
+}
+
+.record-btn.recording {
+  background: radial-gradient(circle at 30% 25%, #d83f3f, var(--danger-dark));
+}
+
+.record-btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.record-icon {
+  font-size: clamp(2.5rem, 8vw, 4rem);
+  line-height: 1;
+}
+
+.status {
+  margin: 0;
   font-weight: 700;
 }
 
-.file-meta,
 .hint {
+  margin: 0;
   color: var(--ink-soft);
   font-size: 0.94rem;
 }
 
-.record-controls {
-  display: flex;
-  gap: 0.6rem;
+.loading {
+  color: var(--action);
+  font-weight: 700;
 }
 
-.submit-row {
-  margin-top: 1rem;
+.result-head {
   display: flex;
   align-items: center;
+  justify-content: space-between;
   gap: 0.7rem;
 }
 
-.btn {
+.result-panel h2 {
+  margin: 0;
+  font-family: "Fraunces", serif;
+}
+
+.copy-btn {
   font-family: inherit;
+  background: #fff;
+  color: var(--ink);
+  border: 1px solid var(--border);
   border-radius: 0.7rem;
-  border: 1px solid transparent;
-  padding: 0.62rem 1rem;
+  padding: 0.42rem 0.76rem;
+  font-size: 0.88rem;
+  font-weight: 700;
   cursor: pointer;
 }
 
-.btn.primary {
-  background: var(--accent);
-  color: #fff;
-}
-
-.btn.secondary {
-  background: #fff;
-  border-color: var(--border);
-  color: var(--ink);
-}
-
-.btn:disabled {
+.copy-btn:disabled {
   opacity: 0.5;
   cursor: not-allowed;
-}
-
-.loading {
-  color: var(--accent-2);
-  font-weight: 500;
-}
-
-.result-panel h2 {
-  margin-top: 0;
-  font-family: "Fraunces", serif;
 }
 
 pre {
@@ -210,13 +216,17 @@ pre {
 }
 
 @media (max-width: 640px) {
-  .container {
-    width: calc(100% - 1rem);
-    margin: 1rem auto 1.2rem;
-  }
-
   .panel {
     padding: 0.85rem;
+  }
+
+  .recorder-panel {
+    min-height: 16.5rem;
+  }
+
+  .upload-corner {
+    top: 0.7rem;
+    right: 0.7rem;
   }
 }
 

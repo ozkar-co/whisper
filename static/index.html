@@ -18,45 +18,33 @@
 
     <main class="container">
       <header class="hero">
-        <p class="kicker">Local Whisper</p>
-        <h1>Upload or Record, Then Transcribe</h1>
-        <p class="subtitle">
-          Simple private transcription running on your own server.
-        </p>
+        <h1>Whisper</h1>
       </header>
 
-      <section class="panel">
-        <div class="mode-row" role="tablist" aria-label="Audio mode">
-          <button class="mode-btn active" id="mode-upload" type="button">Upload Audio</button>
-          <button class="mode-btn" id="mode-record" type="button">Record Audio</button>
+      <section class="panel recorder-panel">
+        <div class="upload-corner">
+          <label class="upload-btn" for="audio-file-input">Subir</label>
+          <input id="audio-file-input" type="file" accept="audio/*" />
         </div>
 
-        <div class="mode-content active" id="upload-section">
-          <label class="file-drop" for="audio-file-input">
-            <input id="audio-file-input" type="file" accept="audio/*" />
-            <span class="file-title">Choose an audio file</span>
-            <span class="file-meta">Supported: webm, wav, m4a, mp3, ogg, flac</span>
-          </label>
-          <p class="hint" id="upload-file-name">No file selected</p>
-        </div>
-
-        <div class="mode-content" id="record-section">
-          <div class="record-controls">
-            <button id="start-record" type="button" class="btn secondary">Start Recording</button>
-            <button id="stop-record" type="button" class="btn secondary" disabled>Stop</button>
+        <div class="recorder-wrap">
+          <button id="record-btn" type="button" class="record-btn" aria-label="Iniciar grabacion">
+            <span id="record-icon" class="record-icon">●</span>
+          </button>
+          <div class="recorder-text">
+            <p id="record-status" class="status">Listo para grabar</p>
+            <p id="upload-file-name" class="hint">o sube un archivo para transcribir al instante</p>
           </div>
-          <p class="hint" id="record-status">Recorder idle</p>
-        </div>
-
-        <div class="submit-row">
-          <button id="transcribe-btn" type="button" class="btn primary" disabled>Transcribe</button>
-          <span id="loading" class="loading hidden">Transcribing...</span>
+          <span id="loading" class="loading hidden">Transcribiendo...</span>
         </div>
       </section>
 
       <section class="panel result-panel">
-        <h2>Result</h2>
-        <p id="result-empty" class="hint">Your transcription will appear here.</p>
+        <div class="result-head">
+          <h2>Resultado</h2>
+          <button id="copy-btn" type="button" class="copy-btn" disabled>Copiar</button>
+        </div>
+        <p id="result-empty" class="hint">La transcripcion aparecera aqui.</p>
         <pre id="result-text" class="hidden"></pre>
         <p id="result-meta" class="hint hidden"></p>
         <p id="result-error" class="error hidden"></p>

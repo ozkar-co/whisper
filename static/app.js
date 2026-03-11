@@ -1,39 +1,22 @@
 const MAX_UPLOAD_MB = 25;
 
-const modeUploadBtn = document.getElementById("mode-upload");
-const modeRecordBtn = document.getElementById("mode-record");
-const uploadSection = document.getElementById("upload-section");
-const recordSection = document.getElementById("record-section");
 const fileInput = document.getElementById("audio-file-input");
 const uploadFileName = document.getElementById("upload-file-name");
-const transcribeBtn = document.getElementById("transcribe-btn");
+const recordBtn = document.getElementById("record-btn");
+const recordIcon = document.getElementById("record-icon");
 const loading = document.getElementById("loading");
-const startRecordBtn = document.getElementById("start-record");
-const stopRecordBtn = document.getElementById("stop-record");
 const recordStatus = document.getElementById("record-status");
 const resultEmpty = document.getElementById("result-empty");
 const resultText = document.getElementById("result-text");
 const resultMeta = document.getElementById("result-meta");
 const resultError = document.getElementById("result-error");
+const copyBtn = document.getElementById("copy-btn");
 
-let mode = "upload";
-let selectedFile = null;
-let recordedBlob = null;
 let mediaRecorder = null;
 let recordingChunks = [];
 let mediaStream = null;
-
-function setMode(next) {
-  mode = next;
-  const uploadActive = next === "upload";
-
-  modeUploadBtn.classList.toggle("active", uploadActive);
-  modeRecordBtn.classList.toggle("active", !uploadActive);
-  uploadSection.classList.toggle("active", uploadActive);
-  recordSection.classList.toggle("active", !uploadActive);
-
-  updateTranscribeEnabled();
-}
+let isRecording = false;
+let isTranscribing = false;
 
 function clearResult() {
   resultError.classList.add("hidden");
@@ -43,6 +26,8 @@ function clearResult() {
   resultMeta.classList.add("hidden");
   resultMeta.textContent = "";
   resultEmpty.classList.remove("hidden");
+  copyBtn.textContent = "Copiar";
+  copyBtn.disabled = true;
 }
 
 function showError(message) {
@@ -51,6 +36,8 @@ function showError(message) {
   resultMeta.classList.add("hidden");
   resultError.classList.remove("hidden");
   resultError.textContent = message;
+  copyBtn.textContent = "Copiar";
+  copyBtn.disabled = true;
 }
 
 function showResult(text, metadata) {
@@ -58,6 +45,7 @@ function showResult(text, metadata) {
   resultError.classList.add("hidden");
   resultText.classList.remove("hidden");
   resultText.textContent = text;
+  copyBtn.disabled = !text;
 
   const bits = [];
   if (metadata?.backend) {
@@ -75,24 +63,6 @@ function showResult(text, metadata) {
   }
 }
 
-function updateTranscribeEnabled() {
-  if (mode === "upload") {
-    transcribeBtn.disabled = !selectedFile;
-  } else {
-    transcribeBtn.disabled = !recordedBlob;
-  }
-}
-
-function activeBlob() {
-  if (mode === "upload" && selectedFile) {
-    return selectedFile;
-  }
-  if (mode === "record" && recordedBlob) {
-    return recordedBlob;
-  }
-  return null;
-}
-
 function validateSize(blob) {
   const maxBytes = MAX_UPLOAD_MB * 1024 * 1024;
   if (blob.size > maxBytes) {
@@ -103,21 +73,30 @@ function validateSize(blob) {
 }
 
 async function sendForTranscription() {
-  clearResult();
-  const blob = activeBlob();
+  return;
+}
+
+async function transcribeBlob(blob, fileNameHint = "recording.webm") {
   if (!blob) {
-    showError("Select or record audio first.");
+    showError("No hay audio para transcribir.");
     return;
   }
   if (!validateSize(blob)) {
     return;
   }
+  if (isTranscribing) {
+    return;
+  }
 
-  transcribeBtn.disabled = true;
+  clearResult();
+  isTranscribing = true;
+  recordBtn.disabled = true;
+  fileInput.disabled = true;
   loading.classList.remove("hidden");
+  recordStatus.textContent = "Transcribiendo...";
 
   const formData = new FormData();
-  const fileName = blob.name || `recording.${mimeToExtension(blob.type)}`;
+  const fileName = blob.name || fileNameHint || `recording.${mimeToExtension(blob.type)}`;
   formData.append("audio", blob, fileName);
 
   try {
@@ -127,9 +106,8 @@ async function sendForTranscription() {
     });
 
     const payload = await response.json();
-
     if (!response.ok || !payload.success) {
-      showError(payload.message || "Transcription failed.");
+      showError(payload.message || "No se pudo transcribir el audio.");
       return;
     }
 
@@ -137,11 +115,17 @@ async function sendForTranscription() {
       backend: payload.backend,
       language: payload.language,
     });
+    recordStatus.textContent = "Transcripcion completada";
   } catch (error) {
-    showError("Network error while contacting server.");
+    showError("Error de red al contactar el servidor.");
   } finally {
+    isTranscribing = false;
+    recordBtn.disabled = false;
+    fileInput.disabled = false;
     loading.classList.add("hidden");
-    updateTranscribeEnabled();
+    if (!isRecording && !resultError.textContent) {
+      recordStatus.textContent = "Listo para grabar";
+    }
   }
 }
 
@@ -169,19 +153,20 @@ function pickSupportedRecordingMime() {
 }
 
 async function startRecording() {
+  if (isTranscribing) {
+    return;
+  }
   clearResult();
-  recordedBlob = null;
-  updateTranscribeEnabled();
 
   if (!navigator.mediaDevices?.getUserMedia || !window.MediaRecorder) {
-    showError("This browser does not support audio recording.");
+    showError("Este navegador no soporta grabacion de audio.");
     return;
   }
 
   try {
     mediaStream = await navigator.mediaDevices.getUserMedia({ audio: true });
   } catch (error) {
-    showError("Microphone permission denied or unavailable.");
+    showError("Permiso de microfono denegado o no disponible.");
     return;
   }
 
@@ -200,16 +185,20 @@ async function startRecording() {
 
   mediaRecorder.onstop = () => {
     const type = mediaRecorder.mimeType || "audio/webm";
-    recordedBlob = new Blob(recordingChunks, { type });
-    recordStatus.textContent = `Recorded ${Math.max(1, Math.round(recordedBlob.size / 1024))} KB`;
+    const recordedBlob = new Blob(recordingChunks, { type });
+    const ext = mimeToExtension(type);
+    const fileName = `recording.${ext}`;
+    recordStatus.textContent = `Grabado ${Math.max(1, Math.round(recordedBlob.size / 1024))} KB`;
     stopTracks();
-    updateTranscribeEnabled();
+    transcribeBlob(recordedBlob, fileName);
   };
 
   mediaRecorder.start();
-  recordStatus.textContent = "Recording...";
-  startRecordBtn.disabled = true;
-  stopRecordBtn.disabled = false;
+  isRecording = true;
+  recordBtn.classList.add("recording");
+  recordIcon.textContent = "■";
+  recordBtn.setAttribute("aria-label", "Detener grabacion");
+  recordStatus.textContent = "Grabando... toca para detener";
 }
 
 function stopTracks() {
@@ -229,27 +218,50 @@ function stopRecording() {
   if (mediaRecorder.state !== "inactive") {
     mediaRecorder.stop();
   }
-  startRecordBtn.disabled = false;
-  stopRecordBtn.disabled = true;
+  isRecording = false;
+  recordBtn.classList.remove("recording");
+  recordIcon.textContent = "●";
+  recordBtn.setAttribute("aria-label", "Iniciar grabacion");
+  recordStatus.textContent = "Procesando audio...";
 }
 
-modeUploadBtn.addEventListener("click", () => setMode("upload"));
-modeRecordBtn.addEventListener("click", () => setMode("record"));
-
-fileInput.addEventListener("change", () => {
-  selectedFile = fileInput.files?.[0] || null;
-  recordedBlob = null;
-  if (selectedFile) {
-    uploadFileName.textContent = `${selectedFile.name} (${Math.round(selectedFile.size / 1024)} KB)`;
-  } else {
-    uploadFileName.textContent = "No file selected";
+recordBtn.addEventListener("click", async () => {
+  if (isTranscribing) {
+    return;
   }
-  updateTranscribeEnabled();
+  if (isRecording) {
+    stopRecording();
+    return;
+  }
+  await startRecording();
 });
 
-startRecordBtn.addEventListener("click", startRecording);
-stopRecordBtn.addEventListener("click", stopRecording);
-transcribeBtn.addEventListener("click", sendForTranscription);
+fileInput.addEventListener("change", async () => {
+  const selectedFile = fileInput.files?.[0] || null;
+  if (!selectedFile) {
+    uploadFileName.textContent = "o sube un archivo para transcribir al instante";
+    return;
+  }
+  uploadFileName.textContent = `Archivo: ${selectedFile.name}`;
+  await transcribeBlob(selectedFile, selectedFile.name);
+  fileInput.value = "";
+});
+
+copyBtn.addEventListener("click", async () => {
+  const text = resultText.textContent || "";
+  if (!text) {
+    return;
+  }
+  try {
+    await navigator.clipboard.writeText(text);
+    copyBtn.textContent = "Copiado";
+    setTimeout(() => {
+      copyBtn.textContent = "Copiar";
+    }, 1200);
+  } catch (error) {
+    showError("No se pudo copiar al portapapeles.");
+  }
+});
 
 clearResult();
-updateTranscribeEnabled();
+recordStatus.textContent = "Listo para grabar";
