@@ -32,6 +32,14 @@ def _transcribe_with_python_sync(audio_path: Path) -> dict[str, str | None]:
     if settings.whisper_language:
         kwargs["language"] = settings.whisper_language
 
+    # Avoid noisy warning on CPU-only servers.
+    try:
+        import torch  # type: ignore
+
+        kwargs["fp16"] = bool(torch.cuda.is_available())
+    except Exception:
+        kwargs["fp16"] = False
+
     result = model.transcribe(str(audio_path), **kwargs)
     text = (result.get("text") or "").strip()
     language = result.get("language")

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import re
+from time import perf_counter
 from pathlib import Path
 from tempfile import NamedTemporaryFile
 
@@ -52,6 +54,31 @@ def _extract_extension(filename: str | None) -> str:
     if not filename or "." not in filename:
         return ""
     return filename.rsplit(".", 1)[-1].lower().strip()
+
+
+def _format_bytes(size_bytes: int) -> str:
+    units = ["B", "KB", "MB", "GB"]
+    value = float(size_bytes)
+    for unit in units:
+        if value < 1024 or unit == units[-1]:
+            if unit == "B":
+                return f"{int(value)} {unit}"
+            return f"{value:.2f} {unit}"
+        value /= 1024
+    return f"{size_bytes} B"
+
+
+def _text_stats(text: str) -> dict[str, int]:
+    words = len(re.findall(r"\S+", text))
+    characters = len(text)
+    characters_no_spaces = len(re.sub(r"\s+", "", text))
+    lines = len(text.splitlines()) if text else 0
+    return {
+        "words": words,
+        "characters": characters,
+        "characters_no_spaces": characters_no_spaces,
+        "lines": lines,
+    }
 
 
 @app.get("/")
@@ -114,6 +141,7 @@ async def transcribe(request: Request, audio: UploadFile = File(...)) -> dict[st
                 },
             )
 
+        started = perf_counter()
         try:
             result = await transcribe_audio(temp_path)
         except TranscriptionError as exc:
@@ -121,12 +149,21 @@ async def transcribe(request: Request, audio: UploadFile = File(...)) -> dict[st
                 status_code=500 if exc.code in {"transcription_failed", "timeout", "python_backend_unavailable"} else 400,
                 detail={"code": exc.code, "message": exc.message},
             ) from exc
+        elapsed_ms = int((perf_counter() - started) * 1000)
+        text = result["text"]
 
         return {
             "success": True,
-            "text": result["text"],
+            "text": text,
             "language": result.get("language"),
             "backend": result.get("backend"),
+            "report": {
+                "file_size_bytes": consumed,
+                "file_size_human": _format_bytes(consumed),
+                "transcription_ms": elapsed_ms,
+                "transcription_seconds": round(elapsed_ms / 1000, 2),
+                "text_stats": _text_stats(text),
+            },
         }
     finally:
         await audio.close()

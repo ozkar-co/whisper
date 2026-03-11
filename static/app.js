@@ -54,6 +54,21 @@ function showResult(text, metadata) {
   if (metadata?.language) {
     bits.push(`language: ${metadata.language}`);
   }
+  if (metadata?.fileSizeHuman) {
+    bits.push(`archivo: ${metadata.fileSizeHuman}`);
+  }
+  if (typeof metadata?.transcriptionSeconds === "number") {
+    bits.push(`tiempo: ${metadata.transcriptionSeconds.toFixed(2)} s`);
+  }
+  if (typeof metadata?.words === "number") {
+    bits.push(`palabras: ${metadata.words}`);
+  }
+  if (typeof metadata?.characters === "number") {
+    bits.push(`caracteres: ${metadata.characters}`);
+  }
+  if (typeof metadata?.lines === "number") {
+    bits.push(`lineas: ${metadata.lines}`);
+  }
 
   if (bits.length > 0) {
     resultMeta.classList.remove("hidden");
@@ -70,10 +85,6 @@ function validateSize(blob) {
     return false;
   }
   return true;
-}
-
-async function sendForTranscription() {
-  return;
 }
 
 async function transcribeBlob(blob, fileNameHint = "recording.webm") {
@@ -114,6 +125,11 @@ async function transcribeBlob(blob, fileNameHint = "recording.webm") {
     showResult(payload.text, {
       backend: payload.backend,
       language: payload.language,
+      fileSizeHuman: payload.report?.file_size_human,
+      transcriptionSeconds: payload.report?.transcription_seconds,
+      words: payload.report?.text_stats?.words,
+      characters: payload.report?.text_stats?.characters,
+      lines: payload.report?.text_stats?.lines,
     });
     recordStatus.textContent = "Transcripcion completada";
   } catch (error) {
