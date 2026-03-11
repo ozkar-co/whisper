@@ -42,6 +42,21 @@ uvicorn app.main:app --host 0.0.0.0 --port 8001
 http://SERVER_IP:8001
 ```
 
+## Healthcheck
+
+- `GET /health`
+- Expected response:
+
+```json
+{"status":"ok"}
+```
+
+Quick check:
+
+```bash
+curl http://SERVER_IP:8001/health
+```
+
 ## Environment Variables
 
 - `MAX_UPLOAD_MB` (default: `25`)
