@@ -87,6 +87,19 @@ function validateSize(blob) {
   return true;
 }
 
+function toNumber(value) {
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return value;
+  }
+  if (typeof value === "string") {
+    const parsed = Number(value);
+    if (Number.isFinite(parsed)) {
+      return parsed;
+    }
+  }
+  return null;
+}
+
 async function transcribeBlob(blob, fileNameHint = "recording.webm") {
   if (!blob) {
     showError("No hay audio para transcribir.");
@@ -122,14 +135,17 @@ async function transcribeBlob(blob, fileNameHint = "recording.webm") {
       return;
     }
 
+    const report = payload.report || payload.transcription_report || {};
+    const textStats = report.text_stats || report.stats || {};
+
     showResult(payload.text, {
       backend: payload.backend,
       language: payload.language,
-      fileSizeHuman: payload.report?.file_size_human,
-      transcriptionSeconds: payload.report?.transcription_seconds,
-      words: payload.report?.text_stats?.words,
-      characters: payload.report?.text_stats?.characters,
-      lines: payload.report?.text_stats?.lines,
+      fileSizeHuman: report.file_size_human || report.fileSizeHuman || report.size_human,
+      transcriptionSeconds: toNumber(report.transcription_seconds ?? report.transcriptionSeconds),
+      words: toNumber(textStats.words),
+      characters: toNumber(textStats.characters),
+      lines: toNumber(textStats.lines),
     });
     recordStatus.textContent = "Transcripcion completada";
   } catch (error) {
