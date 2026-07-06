@@ -101,11 +101,7 @@ def _job_summary(job: Job) -> dict[str, object]:
     return {
         "job_id": job.id,
         "filename": job.filename,
-        "status": job.status.value,
         "created_at": job.created_at.isoformat().replace("+00:00", "Z"),
-        "message": _status_message(job),
-        "progress_percent": job.progress_percent(),
-        "is_active": job.status in {JobStatus.QUEUED, JobStatus.PROCESSING},
     }
 
 

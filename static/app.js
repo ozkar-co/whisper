@@ -18,15 +18,8 @@ const resultMeta = document.getElementById("result-meta");
 const resultError = document.getElementById("result-error");
 const copyBtn = document.getElementById("copy-btn");
 const historyEmpty = document.getElementById("history-empty");
+const historyTable = document.getElementById("history-table");
 const historyList = document.getElementById("history-list");
-
-const STATUS_LABELS = {
-  queued: "En cola",
-  processing: "Transcribiendo",
-  completed: "Completada",
-  failed: "Error",
-  timeout: "Timeout",
-};
 
 let mediaRecorder = null;
 let recordingChunks = [];
@@ -119,7 +112,15 @@ function formatClock(totalSeconds) {
   return `${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
 }
 
-function formatDate(isoValue) {
+function isSameDay(a, b) {
+  return (
+    a.getFullYear() === b.getFullYear() &&
+    a.getMonth() === b.getMonth() &&
+    a.getDate() === b.getDate()
+  );
+}
+
+function formatHistoryWhen(isoValue) {
   if (!isoValue) {
     return "";
   }
@@ -127,24 +128,21 @@ function formatDate(isoValue) {
   if (Number.isNaN(date.getTime())) {
     return "";
   }
-  return date.toLocaleString();
+  if (isSameDay(date, new Date())) {
+    return date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  }
+  return date.toLocaleDateString();
 }
 
-function statusLabel(status) {
-  return STATUS_LABELS[status] || status;
-}
-
-function statusClass(status, isActive) {
-  if (isActive) {
-    return "active";
+function stripExtension(filename) {
+  if (!filename) {
+    return "audio";
   }
-  if (status === "completed") {
-    return "completed";
+  const lastDot = filename.lastIndexOf(".");
+  if (lastDot <= 0) {
+    return filename;
   }
-  if (status === "failed" || status === "timeout") {
-    return "failed";
-  }
-  return "";
+  return filename.slice(0, lastDot);
 }
 
 async function refreshHistory() {
@@ -165,42 +163,30 @@ function renderHistory(jobs) {
 
   if (!jobs.length) {
     historyEmpty.classList.remove("hidden");
-    historyList.classList.add("hidden");
+    historyTable.classList.add("hidden");
     return;
   }
 
   historyEmpty.classList.add("hidden");
-  historyList.classList.remove("hidden");
+  historyTable.classList.remove("hidden");
 
   for (const job of jobs) {
-    const item = document.createElement("li");
-    item.className = `history-item${job.is_active ? " is-active" : ""}`;
+    const row = document.createElement("tr");
 
-    const main = document.createElement("div");
-    main.className = "history-main";
+    const whenCell = document.createElement("td");
+    whenCell.className = "history-when";
+    whenCell.textContent = formatHistoryWhen(job.created_at);
 
-    const filename = document.createElement("p");
-    filename.className = "history-filename";
-    filename.textContent = job.filename || "audio";
+    const titleCell = document.createElement("td");
+    titleCell.className = "history-title";
+    const link = document.createElement("a");
+    link.className = "history-link";
+    link.href = `/?job=${encodeURIComponent(job.job_id)}`;
+    link.textContent = stripExtension(job.filename);
+    titleCell.appendChild(link);
 
-    const meta = document.createElement("p");
-    meta.className = "history-meta";
-    const progress =
-      job.is_active && typeof job.progress_percent === "number"
-        ? ` · ${job.progress_percent}%`
-        : "";
-    meta.innerHTML = `<a class="history-link" href="/?job=${encodeURIComponent(job.job_id)}">${job.job_id}</a> · ${formatDate(job.created_at)}${progress}`;
-
-    main.appendChild(filename);
-    main.appendChild(meta);
-
-    const actions = document.createElement("div");
-    actions.className = "history-actions";
-
-    const badge = document.createElement("span");
-    badge.className = `history-status ${statusClass(job.status, job.is_active)}`;
-    badge.textContent = statusLabel(job.status);
-
+    const deleteCell = document.createElement("td");
+    deleteCell.className = "history-delete";
     const deleteBtn = document.createElement("button");
     deleteBtn.type = "button";
     deleteBtn.className = "delete-btn";
@@ -208,13 +194,12 @@ function renderHistory(jobs) {
     deleteBtn.addEventListener("click", () => {
       deleteJob(job.job_id);
     });
+    deleteCell.appendChild(deleteBtn);
 
-    actions.appendChild(badge);
-    actions.appendChild(deleteBtn);
-
-    item.appendChild(main);
-    item.appendChild(actions);
-    historyList.appendChild(item);
+    row.appendChild(whenCell);
+    row.appendChild(titleCell);
+    row.appendChild(deleteCell);
+    historyList.appendChild(row);
   }
 }
 
@@ -316,7 +301,6 @@ async function pollJob(jobId) {
     }
 
     updateProgressUI(payload);
-    refreshHistory();
 
     if (payload.status === "completed") {
       stopPolling();
