@@ -4,6 +4,7 @@ const POLL_INTERVAL_MS = 1500;
 const fileInput = document.getElementById("audio-file-input");
 const uploadFileName = document.getElementById("upload-file-name");
 const recordBtn = document.getElementById("record-btn");
+const uploadCorner = document.getElementById("upload-corner");
 const recordIcon = document.getElementById("record-icon");
 const loading = document.getElementById("loading");
 const recordStatus = document.getElementById("record-status");
@@ -19,7 +20,6 @@ const resultError = document.getElementById("result-error");
 const copyBtn = document.getElementById("copy-btn");
 const historyEmpty = document.getElementById("history-empty");
 const historyTable = document.getElementById("history-table");
-const historyList = document.getElementById("history-list");
 
 let mediaRecorder = null;
 let recordingChunks = [];
@@ -159,7 +159,7 @@ async function refreshHistory() {
 }
 
 function renderHistory(jobs) {
-  historyList.innerHTML = "";
+  historyTable.innerHTML = "";
 
   if (!jobs.length) {
     historyEmpty.classList.remove("hidden");
@@ -171,22 +171,18 @@ function renderHistory(jobs) {
   historyTable.classList.remove("hidden");
 
   for (const job of jobs) {
-    const row = document.createElement("tr");
+    const row = document.createElement("div");
+    row.className = "history-row";
 
-    const whenCell = document.createElement("td");
+    const whenCell = document.createElement("span");
     whenCell.className = "history-when";
     whenCell.textContent = formatHistoryWhen(job.created_at);
 
-    const titleCell = document.createElement("td");
-    titleCell.className = "history-title";
     const link = document.createElement("a");
     link.className = "history-link";
     link.href = `/?job=${encodeURIComponent(job.job_id)}`;
     link.textContent = stripExtension(job.filename);
-    titleCell.appendChild(link);
 
-    const deleteCell = document.createElement("td");
-    deleteCell.className = "history-delete";
     const deleteBtn = document.createElement("button");
     deleteBtn.type = "button";
     deleteBtn.className = "delete-btn";
@@ -194,12 +190,11 @@ function renderHistory(jobs) {
     deleteBtn.addEventListener("click", () => {
       deleteJob(job.job_id);
     });
-    deleteCell.appendChild(deleteBtn);
 
     row.appendChild(whenCell);
-    row.appendChild(titleCell);
-    row.appendChild(deleteCell);
-    historyList.appendChild(row);
+    row.appendChild(link);
+    row.appendChild(deleteBtn);
+    historyTable.appendChild(row);
   }
 }
 
@@ -266,6 +261,8 @@ function setTranscribingState(active) {
   isTranscribing = active;
   recordBtn.disabled = active;
   fileInput.disabled = active;
+  recordBtn.classList.toggle("hidden", active);
+  uploadCorner.classList.toggle("hidden", active);
   if (active) {
     loading.classList.remove("hidden");
   } else {
@@ -370,10 +367,7 @@ async function transcribeBlob(blob, fileNameHint = "recording.webm") {
   }
 
   clearResult();
-  isTranscribing = true;
-  recordBtn.disabled = true;
-  fileInput.disabled = true;
-  loading.classList.remove("hidden");
+  setTranscribingState(true);
   recordStatus.textContent = "Subiendo audio...";
 
   const formData = new FormData();
@@ -388,20 +382,14 @@ async function transcribeBlob(blob, fileNameHint = "recording.webm") {
 
     const payload = await response.json();
     if (!response.ok || !payload.success || !payload.job_id) {
-      isTranscribing = false;
-      recordBtn.disabled = false;
-      fileInput.disabled = false;
-      loading.classList.add("hidden");
+      setTranscribingState(false);
       showError(payload.message || "No se pudo iniciar la transcripcion.");
       return;
     }
 
     startJobTracking(payload.job_id, toNumber(payload.estimated_seconds) || 0);
   } catch (error) {
-    isTranscribing = false;
-    recordBtn.disabled = false;
-    fileInput.disabled = false;
-    loading.classList.add("hidden");
+    setTranscribingState(false);
     showError("Error de red al contactar el servidor.");
   }
 }

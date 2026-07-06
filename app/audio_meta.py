@@ -6,11 +6,14 @@ from pathlib import Path
 from .config import settings
 
 
+# Processing seconds per second of audio (calibrated from data/timing_log.jsonl).
+# small: median actual/audio from 5 completed runs (2026-07-06).
+# medium: median actual/audio from 2 completed runs (2026-07-06).
 MODEL_REALTIME_FACTORS: dict[str, float] = {
     "tiny": 0.5,
     "base": 1.0,
-    "small": 1.5,
-    "medium": 3.0,
+    "small": 0.31,
+    "medium": 1.2,
     "large": 5.0,
     "large-v2": 5.0,
     "large-v3": 5.0,

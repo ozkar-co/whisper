@@ -57,12 +57,23 @@ body {
   animation: float-in 460ms ease-out;
 }
 
-.hero h1 {
+.hero-link {
+  display: block;
+  text-decoration: none;
+  color: inherit;
+  text-align: center;
+}
+
+.hero-link h1 {
   margin: 0 0 0.8rem;
   font-family: "Fraunces", serif;
   font-size: clamp(2rem, 6vw, 3.4rem);
   line-height: 1.08;
-  text-align: center;
+  transition: color 140ms ease;
+}
+
+.hero-link:hover h1 {
+  color: var(--action);
 }
 
 .panel {
@@ -261,38 +272,43 @@ pre {
 }
 
 .history-panel h2 {
-  margin: 0 0 0.75rem;
+  margin: 0 0 0.65rem;
   font-family: "Fraunces", serif;
 }
 
 .history-table {
-  width: 100%;
-  border-collapse: collapse;
-  border: 0;
-  table-layout: fixed;
+  display: flex;
+  flex-direction: column;
 }
 
-.history-table td {
-  padding: 0.35rem 0;
-  vertical-align: middle;
-  border: 0;
+.history-row {
+  display: grid;
+  grid-template-columns: 5.25rem minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 0.65rem 0.85rem;
+  padding: 0.55rem 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.history-row:last-child {
+  border-bottom: 0;
+  padding-bottom: 0;
+}
+
+.history-row:first-child {
+  padding-top: 0;
 }
 
 .history-when {
-  width: 4.5rem;
-  padding-right: 0.75rem;
   font-size: 0.82rem;
   color: var(--ink-soft);
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
-}
-
-.history-title {
-  min-width: 0;
+  text-align: right;
 }
 
 .history-link {
-  display: block;
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -307,26 +323,24 @@ pre {
   text-decoration: underline;
 }
 
-.history-delete {
-  width: 1px;
-  padding-left: 0.75rem;
-  text-align: right;
+.history-row .delete-btn {
+  justify-self: end;
+  font-family: inherit;
+  background: #fff;
+  color: var(--ink-soft);
+  border: 1px solid var(--border);
+  border-radius: 0.55rem;
+  padding: 0.28rem 0.55rem;
+  font-size: 0.75rem;
+  font-weight: 700;
+  line-height: 1.2;
+  cursor: pointer;
   white-space: nowrap;
 }
 
-.delete-btn {
-  font-family: inherit;
-  background: transparent;
-  color: var(--ink-soft);
-  border: 0;
-  padding: 0.15rem 0;
-  font-size: 0.78rem;
-  font-weight: 600;
-  cursor: pointer;
-}
-
-.delete-btn:hover {
+.history-row .delete-btn:hover {
   color: var(--danger);
+  border-color: rgba(199, 38, 38, 0.28);
 }
 
 @media (max-width: 640px) {
@@ -341,6 +355,16 @@ pre {
   .upload-corner {
     top: 0.7rem;
     right: 0.7rem;
+  }
+
+  .history-row {
+    grid-template-columns: 4.5rem minmax(0, 1fr) auto;
+    gap: 0.5rem 0.65rem;
+  }
+
+  .history-row .delete-btn {
+    padding: 0.24rem 0.45rem;
+    font-size: 0.72rem;
   }
 }
 
