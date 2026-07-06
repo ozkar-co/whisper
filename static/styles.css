@@ -378,3 +378,101 @@ pre {
     transform: translateY(0);
   }
 }
+
+.confirm-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 20;
+  display: grid;
+  place-items: center;
+  padding: 1rem;
+}
+
+.confirm-backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(29, 26, 21, 0.35);
+}
+
+.confirm-panel {
+  position: relative;
+  z-index: 1;
+  width: min(100%, 26rem);
+  margin: 0;
+}
+
+.confirm-title {
+  margin: 0 0 0.35rem;
+  font-family: "Fraunces", serif;
+  font-size: 1.35rem;
+}
+
+.confirm-filename {
+  margin: 0 0 0.85rem;
+  color: var(--ink-soft);
+  font-size: 0.9rem;
+  word-break: break-word;
+}
+
+.confirm-label {
+  display: block;
+  margin-bottom: 0.35rem;
+  font-size: 0.82rem;
+  font-weight: 700;
+  color: var(--ink-soft);
+}
+
+.confirm-select {
+  width: 100%;
+  font-family: inherit;
+  font-size: 0.92rem;
+  padding: 0.45rem 0.55rem;
+  border: 1px solid var(--border);
+  border-radius: 0.55rem;
+  background: #fff;
+  margin-bottom: 0.85rem;
+}
+
+.confirm-stats {
+  margin: 0 0 0.85rem;
+  display: grid;
+  gap: 0.45rem;
+}
+
+.confirm-stat {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 0.75rem;
+  align-items: baseline;
+}
+
+.confirm-stat dt {
+  margin: 0;
+  font-size: 0.86rem;
+  color: var(--ink-soft);
+}
+
+.confirm-stat dd {
+  margin: 0;
+  font-size: 0.92rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+.confirm-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.55rem;
+}
+
+.confirm-submit {
+  background: var(--action);
+  color: #fff;
+  border-color: var(--action);
+}
+
+.confirm-submit:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}

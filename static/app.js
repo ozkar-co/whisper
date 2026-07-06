@@ -20,6 +20,18 @@ const resultError = document.getElementById("result-error");
 const copyBtn = document.getElementById("copy-btn");
 const historyEmpty = document.getElementById("history-empty");
 const historyTable = document.getElementById("history-table");
+const confirmModal = document.getElementById("confirm-modal");
+const confirmFilename = document.getElementById("confirm-filename");
+const modelSelect = document.getElementById("model-select");
+const confirmAudioDuration = document.getElementById("confirm-audio-duration");
+const confirmEstimated = document.getElementById("confirm-estimated");
+const confirmQueueCount = document.getElementById("confirm-queue-count");
+const confirmWaitStart = document.getElementById("confirm-wait-start");
+const confirmError = document.getElementById("confirm-error");
+const confirmCancelBtn = document.getElementById("confirm-cancel-btn");
+const confirmSubmitBtn = document.getElementById("confirm-submit-btn");
+
+const DEFAULT_MODEL = "small";
 
 let mediaRecorder = null;
 let recordingChunks = [];
@@ -28,6 +40,10 @@ let isRecording = false;
 let isTranscribing = false;
 let pollTimer = null;
 let activeJobId = null;
+let pendingBlob = null;
+let pendingFileName = "";
+let pendingDurationSec = null;
+let estimateRequestId = 0;
 
 function clearResult() {
   resultError.classList.add("hidden");
@@ -103,6 +119,142 @@ function toNumber(value) {
     }
   }
   return null;
+}
+
+function formatDurationLabel(totalSeconds) {
+  const safe = Math.max(0, Math.floor(totalSeconds || 0));
+  if (safe < 60) {
+    return `${safe} s`;
+  }
+  const minutes = Math.floor(safe / 60);
+  const seconds = safe % 60;
+  if (seconds === 0) {
+    return `${minutes} min`;
+  }
+  return `${minutes} min ${seconds} s`;
+}
+
+function getAudioDurationSec(blob) {
+  return new Promise((resolve) => {
+    const url = URL.createObjectURL(blob);
+    const audio = new Audio();
+    audio.preload = "metadata";
+    audio.onloadedmetadata = () => {
+      URL.revokeObjectURL(url);
+      const duration = audio.duration;
+      resolve(Number.isFinite(duration) && duration > 0 ? duration : null);
+    };
+    audio.onerror = () => {
+      URL.revokeObjectURL(url);
+      resolve(null);
+    };
+    audio.src = url;
+  });
+}
+
+async function fetchEstimate(model) {
+  if (!pendingBlob) {
+    return null;
+  }
+  const response = await fetch("/api/estimate", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      model,
+      audio_duration_sec: pendingDurationSec,
+      file_size_bytes: pendingBlob.size,
+    }),
+  });
+  const payload = await response.json();
+  if (!response.ok || !payload.success) {
+    throw new Error(payload.message || "No se pudo estimar el tiempo.");
+  }
+  return payload;
+}
+
+function setConfirmLoading(loading) {
+  modelSelect.disabled = loading;
+  confirmSubmitBtn.disabled = loading;
+  confirmCancelBtn.disabled = loading;
+}
+
+async function refreshConfirmEstimate() {
+  if (!pendingBlob) {
+    return;
+  }
+  const requestId = ++estimateRequestId;
+  setConfirmLoading(true);
+  confirmError.classList.add("hidden");
+  confirmError.textContent = "";
+  confirmEstimated.textContent = "Calculando...";
+  confirmQueueCount.textContent = "…";
+  confirmWaitStart.textContent = "…";
+
+  try {
+    const payload = await fetchEstimate(modelSelect.value);
+    if (requestId !== estimateRequestId || !pendingBlob) {
+      return;
+    }
+    confirmEstimated.textContent = `~${formatDurationLabel(payload.estimated_seconds)}`;
+    confirmQueueCount.textContent = String(payload.queue_count ?? 0);
+    confirmWaitStart.textContent = `~${formatDurationLabel(payload.wait_until_start_seconds)}`;
+  } catch (error) {
+    if (requestId !== estimateRequestId) {
+      return;
+    }
+    confirmEstimated.textContent = "—";
+    confirmQueueCount.textContent = "—";
+    confirmWaitStart.textContent = "—";
+    confirmError.textContent = error.message || "No se pudo estimar el tiempo.";
+    confirmError.classList.remove("hidden");
+  } finally {
+    if (requestId === estimateRequestId) {
+      setConfirmLoading(false);
+    }
+  }
+}
+
+function closeConfirmModal() {
+  confirmModal.classList.add("hidden");
+  pendingBlob = null;
+  pendingFileName = "";
+  pendingDurationSec = null;
+  confirmError.classList.add("hidden");
+  confirmError.textContent = "";
+  setConfirmLoading(false);
+}
+
+async function openConfirmModal(blob, fileNameHint = "recording.webm") {
+  if (isTranscribing) {
+    return;
+  }
+  if (!validateSize(blob)) {
+    return;
+  }
+
+  pendingBlob = blob;
+  pendingFileName = blob.name || fileNameHint || `recording.${mimeToExtension(blob.type)}`;
+  pendingDurationSec = await getAudioDurationSec(blob);
+
+  modelSelect.value = DEFAULT_MODEL;
+  confirmFilename.textContent = stripExtension(pendingFileName);
+  confirmAudioDuration.textContent = pendingDurationSec
+    ? formatDurationLabel(pendingDurationSec)
+    : "Desconocida";
+
+  confirmModal.classList.remove("hidden");
+  await refreshConfirmEstimate();
+}
+
+async function submitConfirmModal() {
+  if (!pendingBlob || confirmSubmitBtn.disabled) {
+    return;
+  }
+  const blob = pendingBlob;
+  const fileName = pendingFileName;
+  const model = modelSelect.value;
+  closeConfirmModal();
+  await transcribeBlob(blob, fileName, model);
 }
 
 function formatClock(totalSeconds) {
@@ -358,7 +510,7 @@ function startJobTracking(jobId, estimatedSeconds) {
   refreshHistory();
 }
 
-async function transcribeBlob(blob, fileNameHint = "recording.webm") {
+async function transcribeBlob(blob, fileNameHint = "recording.webm", model = DEFAULT_MODEL) {
   if (!blob) {
     showError("No hay audio para transcribir.");
     return;
@@ -377,6 +529,7 @@ async function transcribeBlob(blob, fileNameHint = "recording.webm") {
   const formData = new FormData();
   const fileName = blob.name || fileNameHint || `recording.${mimeToExtension(blob.type)}`;
   formData.append("audio", blob, fileName);
+  formData.append("model", model);
 
   try {
     const response = await fetch("/api/transcribe", {
@@ -459,7 +612,7 @@ async function startRecording() {
     const fileName = `recording.${ext}`;
     recordStatus.textContent = `Grabado ${Math.max(1, Math.round(recordedBlob.size / 1024))} KB`;
     stopTracks();
-    transcribeBlob(recordedBlob, fileName);
+    openConfirmModal(recordedBlob, fileName);
   };
 
   mediaRecorder.start();
@@ -512,8 +665,22 @@ fileInput.addEventListener("change", async () => {
     return;
   }
   uploadFileName.textContent = `Archivo: ${selectedFile.name}`;
-  await transcribeBlob(selectedFile, selectedFile.name);
+  await openConfirmModal(selectedFile, selectedFile.name);
   fileInput.value = "";
+});
+
+modelSelect.addEventListener("change", () => {
+  refreshConfirmEstimate();
+});
+
+confirmCancelBtn.addEventListener("click", closeConfirmModal);
+confirmSubmitBtn.addEventListener("click", submitConfirmModal);
+confirmModal.querySelector("[data-confirm-cancel]")?.addEventListener("click", closeConfirmModal);
+
+document.addEventListener("keydown", (event) => {
+  if (event.key === "Escape" && !confirmModal.classList.contains("hidden")) {
+    closeConfirmModal();
+  }
 });
 
 copyBtn.addEventListener("click", async () => {

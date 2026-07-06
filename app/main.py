@@ -3,14 +3,17 @@ from __future__ import annotations
 from pathlib import Path
 from tempfile import NamedTemporaryFile
 
-from fastapi import FastAPI, File, HTTPException, Request, UploadFile
+from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
+from pydantic import BaseModel, Field
 
 from .audio_meta import estimate_transcription_seconds, get_audio_duration_sec
 from .config import settings
 from .jobs import Job, JobStatus, job_store
+from .models_catalog import DEFAULT_MODEL, SELECTABLE_MODELS, normalize_model
+from .queue_stats import get_queue_wait_seconds
 from .worker import transcription_worker
 
 
@@ -29,6 +32,12 @@ static_dir = base_dir / "static"
 
 if static_dir.exists():
     app.mount("/static", StaticFiles(directory=static_dir), name="static")
+
+
+class EstimateRequest(BaseModel):
+    model: str = DEFAULT_MODEL
+    audio_duration_sec: float | None = None
+    file_size_bytes: int = Field(..., ge=1)
 
 
 def _validate_content_length(request: Request) -> None:
@@ -54,6 +63,16 @@ def _extract_extension(filename: str | None) -> str:
     if not filename or "." not in filename:
         return ""
     return filename.rsplit(".", 1)[-1].lower().strip()
+
+
+def _parse_model(model: str) -> str:
+    try:
+        return normalize_model(model)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=400,
+            detail={"code": "unsupported_model", "message": str(exc)},
+        ) from exc
 
 
 def _status_message(job: Job) -> str:
@@ -89,12 +108,12 @@ def _job_payload(job: Job) -> dict[str, object]:
         "filename": job.filename,
         "file_size_bytes": job.file_size_bytes,
         "audio_duration_sec": job.audio_duration_sec,
+        "model": job.model,
     }
 
     if job.status == JobStatus.COMPLETED and job.result is not None:
         payload["text"] = job.result.get("text")
         payload["language"] = job.result.get("language")
-        payload["model"] = settings.whisper_model
         payload["backend"] = job.result.get("backend")
         payload["report"] = job.report
 
@@ -123,6 +142,35 @@ async def index() -> FileResponse:
 @app.get("/health")
 async def health() -> dict[str, str]:
     return {"status": "ok"}
+
+
+@app.get("/api/models")
+async def list_models() -> dict[str, object]:
+    return {
+        "success": True,
+        "default": DEFAULT_MODEL,
+        "models": list(SELECTABLE_MODELS),
+    }
+
+
+@app.post("/api/estimate")
+async def estimate_transcription(body: EstimateRequest) -> dict[str, object]:
+    model = _parse_model(body.model)
+    estimated_seconds, factor_used = estimate_transcription_seconds(
+        model=model,
+        audio_duration_sec=body.audio_duration_sec,
+        file_size_bytes=body.file_size_bytes,
+    )
+    queue_count, wait_until_start_seconds = await get_queue_wait_seconds()
+
+    return {
+        "success": True,
+        "model": model,
+        "estimated_seconds": estimated_seconds,
+        "factor_used": factor_used,
+        "queue_count": queue_count,
+        "wait_until_start_seconds": wait_until_start_seconds,
+    }
 
 
 @app.get("/api/jobs")
@@ -163,8 +211,13 @@ async def delete_job(job_id: str) -> dict[str, object]:
 
 
 @app.post("/api/transcribe", status_code=202)
-async def transcribe(request: Request, audio: UploadFile = File(...)) -> dict[str, object]:
+async def transcribe(
+    request: Request,
+    audio: UploadFile = File(...),
+    model: str = Form(DEFAULT_MODEL),
+) -> dict[str, object]:
     _validate_content_length(request)
+    whisper_model = _parse_model(model)
 
     extension = _extract_extension(audio.filename)
     if extension not in settings.allowed_extensions:
@@ -213,7 +266,7 @@ async def transcribe(request: Request, audio: UploadFile = File(...)) -> dict[st
 
         audio_duration_sec = get_audio_duration_sec(temp_path)
         estimated_seconds, factor_used = estimate_transcription_seconds(
-            model=settings.whisper_model,
+            model=whisper_model,
             audio_duration_sec=audio_duration_sec,
             file_size_bytes=consumed,
         )
@@ -224,6 +277,7 @@ async def transcribe(request: Request, audio: UploadFile = File(...)) -> dict[st
             audio_duration_sec=audio_duration_sec,
             estimated_seconds=estimated_seconds,
             factor_used=factor_used,
+            model=whisper_model,
             temp_path=temp_path,
         )
         job_created = True
@@ -234,6 +288,7 @@ async def transcribe(request: Request, audio: UploadFile = File(...)) -> dict[st
             "success": True,
             "job_id": job.id,
             "status": job.status.value,
+            "model": whisper_model,
             "estimated_seconds": estimated_seconds,
             "status_url": f"/api/jobs/{job.id}",
         }

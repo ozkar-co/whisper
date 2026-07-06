@@ -40,6 +40,7 @@ class Job:
     audio_duration_sec: float | None
     estimated_seconds: float
     factor_used: float
+    model: str
     temp_path: Path
     started_at: datetime | None = None
     finished_at: datetime | None = None
@@ -85,6 +86,7 @@ class JobStore:
         audio_duration_sec: float | None,
         estimated_seconds: float,
         factor_used: float,
+        model: str,
         temp_path: Path,
     ) -> Job:
         async with self._lock:
@@ -104,6 +106,7 @@ class JobStore:
                 audio_duration_sec=audio_duration_sec,
                 estimated_seconds=estimated_seconds,
                 factor_used=factor_used,
+                model=model,
                 temp_path=temp_path,
             )
             self._jobs[job.id] = job

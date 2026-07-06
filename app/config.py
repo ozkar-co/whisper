@@ -61,7 +61,7 @@ class Settings:
         for part in os.getenv("ALLOWED_EXTENSIONS", "webm,wav,m4a,mp3,ogg,flac").split(",")
         if part.strip()
     )
-    whisper_model: str = os.getenv("WHISPER_MODEL", "base")
+    whisper_model: str = os.getenv("WHISPER_MODEL", "small")
     whisper_language: str | None = os.getenv("WHISPER_LANGUAGE") or None
     whisper_timeout_sec: int = _get_int("WHISPER_TIMEOUT_SEC", 1800)
     estimated_realtime_factor: float | None = _get_float("ESTIMATED_REALTIME_FACTOR")

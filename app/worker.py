@@ -4,7 +4,6 @@ import asyncio
 import re
 from time import perf_counter
 
-from .config import settings
 from .jobs import JobStatus, job_store
 from .timing_log import append_timing_log
 from .transcriber import TranscriptionError, transcribe_audio
@@ -56,7 +55,7 @@ async def process_job(job_id: str) -> None:
     temp_path = job.temp_path
     started = perf_counter()
     try:
-        result = await transcribe_audio(temp_path)
+        result = await transcribe_audio(temp_path, model=job.model)
         elapsed_ms = int((perf_counter() - started) * 1000)
         text = result["text"]
         report = {
@@ -79,7 +78,7 @@ async def process_job(job_id: str) -> None:
     finally:
         finished_job = await job_store.get(job_id)
         if finished_job is not None and finished_job.started_at is not None:
-            append_timing_log(finished_job, model=settings.whisper_model)
+            append_timing_log(finished_job, model=finished_job.model)
         if temp_path.exists():
             temp_path.unlink(missing_ok=True)
 

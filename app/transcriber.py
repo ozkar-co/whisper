@@ -19,17 +19,17 @@ _model_cache: dict[str, Any] = {}
 _transcribe_lock = threading.Lock()
 
 
-def _transcribe_with_python_sync(audio_path: Path) -> dict[str, str | None]:
+def _transcribe_with_python_sync(audio_path: Path, model_name: str) -> dict[str, str | None]:
     with _transcribe_lock:
         try:
             import whisper  # type: ignore
         except Exception as exc:  # pragma: no cover
             raise TranscriptionError("python_backend_unavailable", "Python Whisper backend is unavailable.") from exc
 
-        model = _model_cache.get(settings.whisper_model)
+        model = _model_cache.get(model_name)
         if model is None:
-            model = whisper.load_model(settings.whisper_model)
-            _model_cache[settings.whisper_model] = model
+            model = whisper.load_model(model_name)
+            _model_cache[model_name] = model
 
         kwargs: dict[str, Any] = {}
         if settings.whisper_language:
@@ -54,10 +54,11 @@ def _transcribe_with_python_sync(audio_path: Path) -> dict[str, str | None]:
 async def transcribe_with_python(
     audio_path: Path,
     *,
+    model: str,
     timeout_sec: int | None = None,
 ) -> dict[str, str | None]:
     effective_timeout = settings.whisper_timeout_sec if timeout_sec is None else timeout_sec
-    task = asyncio.create_task(asyncio.to_thread(_transcribe_with_python_sync, audio_path))
+    task = asyncio.create_task(asyncio.to_thread(_transcribe_with_python_sync, audio_path, model))
     if effective_timeout <= 0:
         return await task
     try:
@@ -70,7 +71,8 @@ async def transcribe_with_python(
 async def transcribe_audio(
     audio_path: Path,
     *,
+    model: str,
     timeout_sec: int | None = None,
 ) -> dict[str, str | None]:
-    result = await transcribe_with_python(audio_path, timeout_sec=timeout_sec)
+    result = await transcribe_with_python(audio_path, model=model, timeout_sec=timeout_sec)
     return {**result, "backend": "python"}
