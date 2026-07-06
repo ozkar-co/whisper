@@ -70,10 +70,10 @@ curl http://SERVER_IP:8001/health
 ```json
 {
   "success": true,
-  "job_id": "uuid",
+  "job_id": "a3f9k2m1",
   "status": "queued",
   "estimated_seconds": 145,
-  "status_url": "/api/jobs/uuid"
+  "status_url": "/api/jobs/a3f9k2m1"
 }
 ```
 
@@ -86,7 +86,7 @@ While processing:
 ```json
 {
   "success": true,
-  "job_id": "uuid",
+  "job_id": "a3f9k2m1",
   "status": "processing",
   "elapsed_seconds": 42.3,
   "estimated_seconds": 145,

@@ -17,6 +17,16 @@ const resultText = document.getElementById("result-text");
 const resultMeta = document.getElementById("result-meta");
 const resultError = document.getElementById("result-error");
 const copyBtn = document.getElementById("copy-btn");
+const historyEmpty = document.getElementById("history-empty");
+const historyList = document.getElementById("history-list");
+
+const STATUS_LABELS = {
+  queued: "En cola",
+  processing: "Transcribiendo",
+  completed: "Completada",
+  failed: "Error",
+  timeout: "Timeout",
+};
 
 let mediaRecorder = null;
 let recordingChunks = [];
@@ -109,6 +119,129 @@ function formatClock(totalSeconds) {
   return `${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
 }
 
+function formatDate(isoValue) {
+  if (!isoValue) {
+    return "";
+  }
+  const date = new Date(isoValue);
+  if (Number.isNaN(date.getTime())) {
+    return "";
+  }
+  return date.toLocaleString();
+}
+
+function statusLabel(status) {
+  return STATUS_LABELS[status] || status;
+}
+
+function statusClass(status, isActive) {
+  if (isActive) {
+    return "active";
+  }
+  if (status === "completed") {
+    return "completed";
+  }
+  if (status === "failed" || status === "timeout") {
+    return "failed";
+  }
+  return "";
+}
+
+async function refreshHistory() {
+  try {
+    const response = await fetch("/api/jobs");
+    const payload = await response.json();
+    if (!response.ok || !payload.success) {
+      return;
+    }
+    renderHistory(payload.jobs || []);
+  } catch (error) {
+    // Ignore list refresh errors; main flow still works.
+  }
+}
+
+function renderHistory(jobs) {
+  historyList.innerHTML = "";
+
+  if (!jobs.length) {
+    historyEmpty.classList.remove("hidden");
+    historyList.classList.add("hidden");
+    return;
+  }
+
+  historyEmpty.classList.add("hidden");
+  historyList.classList.remove("hidden");
+
+  for (const job of jobs) {
+    const item = document.createElement("li");
+    item.className = `history-item${job.is_active ? " is-active" : ""}`;
+
+    const main = document.createElement("div");
+    main.className = "history-main";
+
+    const filename = document.createElement("p");
+    filename.className = "history-filename";
+    filename.textContent = job.filename || "audio";
+
+    const meta = document.createElement("p");
+    meta.className = "history-meta";
+    const progress =
+      job.is_active && typeof job.progress_percent === "number"
+        ? ` · ${job.progress_percent}%`
+        : "";
+    meta.innerHTML = `<a class="history-link" href="/?job=${encodeURIComponent(job.job_id)}">${job.job_id}</a> · ${formatDate(job.created_at)}${progress}`;
+
+    main.appendChild(filename);
+    main.appendChild(meta);
+
+    const actions = document.createElement("div");
+    actions.className = "history-actions";
+
+    const badge = document.createElement("span");
+    badge.className = `history-status ${statusClass(job.status, job.is_active)}`;
+    badge.textContent = statusLabel(job.status);
+
+    const deleteBtn = document.createElement("button");
+    deleteBtn.type = "button";
+    deleteBtn.className = "delete-btn";
+    deleteBtn.textContent = "Eliminar";
+    deleteBtn.addEventListener("click", () => {
+      deleteJob(job.job_id);
+    });
+
+    actions.appendChild(badge);
+    actions.appendChild(deleteBtn);
+
+    item.appendChild(main);
+    item.appendChild(actions);
+    historyList.appendChild(item);
+  }
+}
+
+async function deleteJob(jobId) {
+  try {
+    const response = await fetch(`/api/jobs/${jobId}`, { method: "DELETE" });
+    const payload = await response.json();
+    if (!response.ok || !payload.success) {
+      showError(payload.message || "No se pudo eliminar la transcripcion.");
+      return;
+    }
+
+    if (jobId === activeJobId) {
+      stopPolling();
+      setTranscribingState(false);
+      activeJobId = null;
+      clearJobUrl();
+      clearResult();
+      recordStatus.textContent = "Listo para grabar";
+    }
+
+    await refreshHistory();
+  } catch (error) {
+    showError("Error de red al eliminar la transcripcion.");
+  }
+}
+
 function setJobUrl(jobId) {
   const url = new URL(window.location.href);
   url.searchParams.set("job", jobId);
@@ -178,10 +311,12 @@ async function pollJob(jobId) {
       setTranscribingState(false);
       activeJobId = null;
       clearJobUrl();
+      await refreshHistory();
       return;
     }
 
     updateProgressUI(payload);
+    refreshHistory();
 
     if (payload.status === "completed") {
       stopPolling();
@@ -235,6 +370,7 @@ function startJobTracking(jobId, estimatedSeconds) {
   pollTimer = setInterval(() => {
     pollJob(jobId);
   }, POLL_INTERVAL_MS);
+  refreshHistory();
 }
 
 async function transcribeBlob(blob, fileNameHint = "recording.webm") {
@@ -432,4 +568,5 @@ function resumeJobFromUrl() {
 
 clearResult();
 recordStatus.textContent = "Listo para grabar";
+refreshHistory();
 resumeJobFromUrl();

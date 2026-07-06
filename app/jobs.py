@@ -1,12 +1,17 @@
 from __future__ import annotations
 
 import asyncio
+import secrets
+import string
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from enum import Enum
 from pathlib import Path
 from typing import Any
-from uuid import uuid4
+
+
+SHORT_ID_LENGTH = 8
+SHORT_ID_ALPHABET = string.ascii_lowercase + string.digits
 
 
 class JobStatus(str, Enum):
@@ -19,6 +24,10 @@ class JobStatus(str, Enum):
 
 def _utc_now() -> datetime:
     return datetime.now(timezone.utc)
+
+
+def _new_job_id(length: int = SHORT_ID_LENGTH) -> str:
+    return "".join(secrets.choice(SHORT_ID_ALPHABET) for _ in range(length))
 
 
 @dataclass
@@ -78,24 +87,45 @@ class JobStore:
         factor_used: float,
         temp_path: Path,
     ) -> Job:
-        job = Job(
-            id=str(uuid4()),
-            status=JobStatus.QUEUED,
-            created_at=_utc_now(),
-            filename=filename,
-            file_size_bytes=file_size_bytes,
-            audio_duration_sec=audio_duration_sec,
-            estimated_seconds=estimated_seconds,
-            factor_used=factor_used,
-            temp_path=temp_path,
-        )
         async with self._lock:
+            for attempt in range(16):
+                job_id = _new_job_id(SHORT_ID_LENGTH + (attempt // 8))
+                if job_id not in self._jobs:
+                    break
+            else:
+                job_id = secrets.token_hex(8)
+
+            job = Job(
+                id=job_id,
+                status=JobStatus.QUEUED,
+                created_at=_utc_now(),
+                filename=filename,
+                file_size_bytes=file_size_bytes,
+                audio_duration_sec=audio_duration_sec,
+                estimated_seconds=estimated_seconds,
+                factor_used=factor_used,
+                temp_path=temp_path,
+            )
             self._jobs[job.id] = job
-        return job
+            return job
 
     async def get(self, job_id: str) -> Job | None:
         async with self._lock:
             return self._jobs.get(job_id)
+
+    async def list_all(self) -> list[Job]:
+        async with self._lock:
+            return sorted(self._jobs.values(), key=lambda job: job.created_at, reverse=True)
+
+    async def delete(self, job_id: str) -> bool:
+        async with self._lock:
+            job = self._jobs.pop(job_id, None)
+            if job is None:
+                return False
+            temp_path = job.temp_path
+        if temp_path.exists():
+            temp_path.unlink(missing_ok=True)
+        return True
 
     async def mark_processing(self, job_id: str) -> Job | None:
         async with self._lock:

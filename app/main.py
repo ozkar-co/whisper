@@ -24,7 +24,7 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
     allow_credentials=False,
-    allow_methods=["GET", "POST"],
+    allow_methods=["GET", "POST", "DELETE"],
     allow_headers=["*"],
 )
 
@@ -95,6 +95,18 @@ def _status_message(job: Job) -> str:
     if job.status == JobStatus.TIMEOUT:
         return "La transcripcion excedio el tiempo limite."
     return job.error_message or "La transcripcion fallo."
+
+
+def _job_summary(job: Job) -> dict[str, object]:
+    return {
+        "job_id": job.id,
+        "filename": job.filename,
+        "status": job.status.value,
+        "created_at": job.created_at.isoformat().replace("+00:00", "Z"),
+        "message": _status_message(job),
+        "progress_percent": job.progress_percent(),
+        "is_active": job.status in {JobStatus.QUEUED, JobStatus.PROCESSING},
+    }
 
 
 def _job_payload(job: Job) -> dict[str, object]:
@@ -185,6 +197,15 @@ async def health() -> dict[str, str]:
     return {"status": "ok"}
 
 
+@app.get("/api/jobs")
+async def list_jobs() -> dict[str, object]:
+    jobs = await job_store.list_all()
+    return {
+        "success": True,
+        "jobs": [_job_summary(job) for job in jobs],
+    }
+
+
 @app.get("/api/jobs/{job_id}")
 async def get_job(job_id: str) -> dict[str, object]:
     job = await job_store.get(job_id)
@@ -197,6 +218,20 @@ async def get_job(job_id: str) -> dict[str, object]:
             },
         )
     return _job_payload(job)
+
+
+@app.delete("/api/jobs/{job_id}")
+async def delete_job(job_id: str) -> dict[str, object]:
+    deleted = await job_store.delete(job_id)
+    if not deleted:
+        raise HTTPException(
+            status_code=404,
+            detail={
+                "code": "job_not_found",
+                "message": "Job not found.",
+            },
+        )
+    return {"success": True, "job_id": job_id}
 
 
 @app.post("/api/transcribe", status_code=202)
