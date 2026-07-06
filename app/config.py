@@ -43,6 +43,16 @@ def _get_int(name: str, default: int) -> int:
     return value
 
 
+def _get_float(name: str, default: float | None = None) -> float | None:
+    raw = os.getenv(name)
+    if raw is None or not raw.strip():
+        return default
+    try:
+        return float(raw)
+    except ValueError:
+        return default
+
+
 @dataclass(frozen=True)
 class Settings:
     max_upload_mb: int = _get_int("MAX_UPLOAD_MB", 25)
@@ -53,7 +63,11 @@ class Settings:
     )
     whisper_model: str = os.getenv("WHISPER_MODEL", "base")
     whisper_language: str | None = os.getenv("WHISPER_LANGUAGE") or None
-    whisper_timeout_sec: int = _get_int("WHISPER_TIMEOUT_SEC", 120)
+    whisper_timeout_sec: int = _get_int("WHISPER_TIMEOUT_SEC", 1800)
+    estimated_realtime_factor: float | None = _get_float("ESTIMATED_REALTIME_FACTOR")
+    model_load_buffer_sec: float = _get_float("MODEL_LOAD_BUFFER_SEC", 10.0) or 10.0
+    job_ttl_hours: int = _get_int("JOB_TTL_HOURS", 24)
+    timing_log_path: str = os.getenv("TIMING_LOG_PATH", "data/timing_log.jsonl")
     debug: bool = _get_bool("DEBUG", False)
 
 

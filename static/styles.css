@@ -166,6 +166,51 @@ body {
   font-weight: 700;
 }
 
+.progress-panel {
+  width: min(100%, 22rem);
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+}
+
+.progress-bar {
+  width: 100%;
+  height: 0.55rem;
+  border-radius: 999px;
+  background: rgba(29, 26, 21, 0.1);
+  overflow: hidden;
+}
+
+.progress-fill {
+  height: 100%;
+  width: 0%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, #5aa097, #1f6a61);
+  transition: width 400ms ease;
+}
+
+.progress-timer {
+  margin: 0;
+  font-size: 0.95rem;
+  font-weight: 700;
+  color: var(--action);
+  font-variant-numeric: tabular-nums;
+}
+
+.job-link-wrap {
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  word-break: break-all;
+}
+
+.job-link {
+  color: var(--action);
+  font-size: 0.85rem;
+  text-decoration: underline;
+}
+
 .result-head {
   display: flex;
   align-items: center;

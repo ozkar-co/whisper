@@ -35,6 +35,17 @@
             <p id="record-status" class="status">Listo para grabar</p>
             <p id="upload-file-name" class="hint">o sube un archivo para transcribir al instante</p>
           </div>
+          <div id="progress-panel" class="progress-panel hidden">
+            <div class="progress-bar" aria-hidden="true">
+              <div id="progress-fill" class="progress-fill"></div>
+            </div>
+            <p id="progress-timer" class="progress-timer">00:00 / ~00:00</p>
+            <p id="progress-message" class="hint">Transcribiendo...</p>
+            <p class="job-link-wrap">
+              <span class="hint">Enlace del proceso:</span>
+              <a id="job-link" class="job-link" href="#"></a>
+            </p>
+          </div>
           <span id="loading" class="loading hidden">Transcribiendo...</span>
         </div>
       </section>
@@ -51,6 +62,6 @@
       </section>
     </main>
 
-    <script src="/static/app.js?v=20260311-2" type="module"></script>
+    <script src="/static/app.js?v=20260706-1" type="module"></script>
   </body>
 </html>

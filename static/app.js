@@ -1,4 +1,5 @@
 const MAX_UPLOAD_MB = 25;
+const POLL_INTERVAL_MS = 1500;
 
 const fileInput = document.getElementById("audio-file-input");
 const uploadFileName = document.getElementById("upload-file-name");
@@ -6,6 +7,11 @@ const recordBtn = document.getElementById("record-btn");
 const recordIcon = document.getElementById("record-icon");
 const loading = document.getElementById("loading");
 const recordStatus = document.getElementById("record-status");
+const progressPanel = document.getElementById("progress-panel");
+const progressFill = document.getElementById("progress-fill");
+const progressTimer = document.getElementById("progress-timer");
+const progressMessage = document.getElementById("progress-message");
+const jobLink = document.getElementById("job-link");
 const resultEmpty = document.getElementById("result-empty");
 const resultText = document.getElementById("result-text");
 const resultMeta = document.getElementById("result-meta");
@@ -17,6 +23,8 @@ let recordingChunks = [];
 let mediaStream = null;
 let isRecording = false;
 let isTranscribing = false;
+let pollTimer = null;
+let activeJobId = null;
 
 function clearResult() {
   resultError.classList.add("hidden");
@@ -94,6 +102,141 @@ function toNumber(value) {
   return null;
 }
 
+function formatClock(totalSeconds) {
+  const safe = Math.max(0, Math.floor(totalSeconds || 0));
+  const minutes = Math.floor(safe / 60);
+  const seconds = safe % 60;
+  return `${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
+}
+
+function setJobUrl(jobId) {
+  const url = new URL(window.location.href);
+  url.searchParams.set("job", jobId);
+  window.history.replaceState({}, "", url);
+}
+
+function clearJobUrl() {
+  const url = new URL(window.location.href);
+  url.searchParams.delete("job");
+  window.history.replaceState({}, "", url.pathname + url.search);
+}
+
+function showProgressPanel(jobId, estimatedSeconds) {
+  progressPanel.classList.remove("hidden");
+  loading.classList.add("hidden");
+  progressFill.style.width = "0%";
+  progressTimer.textContent = `00:00 / ~${formatClock(estimatedSeconds)}`;
+  progressMessage.textContent = "Transcribiendo...";
+  const jobUrl = `${window.location.origin}${window.location.pathname}?job=${jobId}`;
+  jobLink.href = jobUrl;
+  jobLink.textContent = jobUrl;
+}
+
+function hideProgressPanel() {
+  progressPanel.classList.add("hidden");
+  progressFill.style.width = "0%";
+}
+
+function stopPolling() {
+  if (pollTimer !== null) {
+    clearInterval(pollTimer);
+    pollTimer = null;
+  }
+}
+
+function setTranscribingState(active) {
+  isTranscribing = active;
+  recordBtn.disabled = active;
+  fileInput.disabled = active;
+  if (active) {
+    loading.classList.remove("hidden");
+  } else {
+    loading.classList.add("hidden");
+    hideProgressPanel();
+  }
+}
+
+function updateProgressUI(payload) {
+  const elapsed = toNumber(payload.elapsed_seconds) || 0;
+  const estimated = toNumber(payload.estimated_seconds) || 0;
+  const percent = toNumber(payload.progress_percent) || 0;
+
+  progressFill.style.width = `${Math.min(100, Math.max(0, percent))}%`;
+  progressTimer.textContent = `${formatClock(elapsed)} / ~${formatClock(estimated)}`;
+  progressMessage.textContent = payload.message || "Transcribiendo...";
+  recordStatus.textContent = payload.message || "Transcribiendo...";
+}
+
+async function pollJob(jobId) {
+  try {
+    const response = await fetch(`/api/jobs/${jobId}`);
+    const payload = await response.json();
+
+    if (!response.ok || !payload.job_id) {
+      showError(payload.message || "No se encontro el proceso de transcripcion.");
+      stopPolling();
+      setTranscribingState(false);
+      activeJobId = null;
+      clearJobUrl();
+      return;
+    }
+
+    updateProgressUI(payload);
+
+    if (payload.status === "completed") {
+      stopPolling();
+      setTranscribingState(false);
+      activeJobId = null;
+      clearJobUrl();
+
+      const report = payload.report || {};
+      const textStats = report.text_stats || {};
+      showResult(payload.text || "", {
+        model: payload.model,
+        language: payload.language,
+        fileSizeHuman: report.file_size_human,
+        transcriptionSeconds: toNumber(report.transcription_seconds),
+        words: toNumber(textStats.words),
+      });
+      recordStatus.textContent = "Transcripcion completada";
+      return;
+    }
+
+    if (payload.status === "failed" || payload.status === "timeout") {
+      stopPolling();
+      setTranscribingState(false);
+      activeJobId = null;
+      clearJobUrl();
+      showError(payload.message || "No se pudo transcribir el audio.");
+      if (!isRecording) {
+        recordStatus.textContent = "Listo para grabar";
+      }
+    }
+  } catch (error) {
+    stopPolling();
+    setTranscribingState(false);
+    activeJobId = null;
+    showError("Error de red al consultar el estado del proceso.");
+    if (!isRecording) {
+      recordStatus.textContent = "Listo para grabar";
+    }
+  }
+}
+
+function startJobTracking(jobId, estimatedSeconds) {
+  stopPolling();
+  activeJobId = jobId;
+  setTranscribingState(true);
+  showProgressPanel(jobId, estimatedSeconds);
+  setJobUrl(jobId);
+  recordStatus.textContent = "Transcribiendo...";
+
+  pollJob(jobId);
+  pollTimer = setInterval(() => {
+    pollJob(jobId);
+  }, POLL_INTERVAL_MS);
+}
+
 async function transcribeBlob(blob, fileNameHint = "recording.webm") {
   if (!blob) {
     showError("No hay audio para transcribir.");
@@ -111,7 +254,7 @@ async function transcribeBlob(blob, fileNameHint = "recording.webm") {
   recordBtn.disabled = true;
   fileInput.disabled = true;
   loading.classList.remove("hidden");
-  recordStatus.textContent = "Transcribiendo...";
+  recordStatus.textContent = "Subiendo audio...";
 
   const formData = new FormData();
   const fileName = blob.name || fileNameHint || `recording.${mimeToExtension(blob.type)}`;
@@ -124,32 +267,22 @@ async function transcribeBlob(blob, fileNameHint = "recording.webm") {
     });
 
     const payload = await response.json();
-    if (!response.ok || !payload.success) {
-      showError(payload.message || "No se pudo transcribir el audio.");
+    if (!response.ok || !payload.success || !payload.job_id) {
+      isTranscribing = false;
+      recordBtn.disabled = false;
+      fileInput.disabled = false;
+      loading.classList.add("hidden");
+      showError(payload.message || "No se pudo iniciar la transcripcion.");
       return;
     }
 
-    const report = payload.report || payload.transcription_report || {};
-    const textStats = report.text_stats || report.stats || {};
-
-    showResult(payload.text, {
-      model: payload.model || payload.whisper_model,
-      language: payload.language,
-      fileSizeHuman: report.file_size_human || report.fileSizeHuman || report.size_human,
-      transcriptionSeconds: toNumber(report.transcription_seconds ?? report.transcriptionSeconds),
-      words: toNumber(textStats.words),
-    });
-    recordStatus.textContent = "Transcripcion completada";
+    startJobTracking(payload.job_id, toNumber(payload.estimated_seconds) || 0);
   } catch (error) {
-    showError("Error de red al contactar el servidor.");
-  } finally {
     isTranscribing = false;
     recordBtn.disabled = false;
     fileInput.disabled = false;
     loading.classList.add("hidden");
-    if (!isRecording && !resultError.textContent) {
-      recordStatus.textContent = "Listo para grabar";
-    }
+    showError("Error de red al contactar el servidor.");
   }
 }
 
@@ -287,5 +420,16 @@ copyBtn.addEventListener("click", async () => {
   }
 });
 
+function resumeJobFromUrl() {
+  const params = new URLSearchParams(window.location.search);
+  const jobId = params.get("job");
+  if (!jobId || isTranscribing) {
+    return;
+  }
+  clearResult();
+  startJobTracking(jobId, 0);
+}
+
 clearResult();
 recordStatus.textContent = "Listo para grabar";
+resumeJobFromUrl();

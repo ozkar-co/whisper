@@ -48,15 +48,26 @@ def _transcribe_with_python_sync(audio_path: Path) -> dict[str, str | None]:
     return {"text": text, "language": language}
 
 
-async def transcribe_with_python(audio_path: Path) -> dict[str, str | None]:
+async def transcribe_with_python(
+    audio_path: Path,
+    *,
+    timeout_sec: int | None = None,
+) -> dict[str, str | None]:
+    effective_timeout = settings.whisper_timeout_sec if timeout_sec is None else timeout_sec
+    task = asyncio.create_task(asyncio.to_thread(_transcribe_with_python_sync, audio_path))
+    if effective_timeout <= 0:
+        return await task
     try:
-        return await asyncio.wait_for(
-            asyncio.to_thread(_transcribe_with_python_sync, audio_path),
-            timeout=settings.whisper_timeout_sec,
-        )
+        return await asyncio.wait_for(task, timeout=effective_timeout)
     except asyncio.TimeoutError as exc:
+        task.cancel()
         raise TranscriptionError("timeout", "Transcription timed out.") from exc
 
-async def transcribe_audio(audio_path: Path) -> dict[str, str | None]:
-    result = await transcribe_with_python(audio_path)
+
+async def transcribe_audio(
+    audio_path: Path,
+    *,
+    timeout_sec: int | None = None,
+) -> dict[str, str | None]:
+    result = await transcribe_with_python(audio_path, timeout_sec=timeout_sec)
     return {**result, "backend": "python"}

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import re
 from time import perf_counter
 from pathlib import Path
@@ -7,10 +8,13 @@ from tempfile import NamedTemporaryFile
 
 from fastapi import FastAPI, File, HTTPException, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
+from .audio_meta import estimate_transcription_seconds, get_audio_duration_sec
 from .config import settings
+from .jobs import Job, JobStatus, job_store
+from .timing_log import append_timing_log
 from .transcriber import TranscriptionError, transcribe_audio
 
 
@@ -81,6 +85,93 @@ def _text_stats(text: str) -> dict[str, int]:
     }
 
 
+def _status_message(job: Job) -> str:
+    if job.status == JobStatus.QUEUED:
+        return "En cola..."
+    if job.status == JobStatus.PROCESSING:
+        return "Transcribiendo..."
+    if job.status == JobStatus.COMPLETED:
+        return "Transcripcion completada"
+    if job.status == JobStatus.TIMEOUT:
+        return "La transcripcion excedio el tiempo limite."
+    return job.error_message or "La transcripcion fallo."
+
+
+def _job_payload(job: Job) -> dict[str, object]:
+    elapsed = job.elapsed_seconds()
+    payload: dict[str, object] = {
+        "success": True,
+        "job_id": job.id,
+        "status": job.status.value,
+        "estimated_seconds": job.estimated_seconds,
+        "elapsed_seconds": round(elapsed, 1) if elapsed is not None else None,
+        "progress_percent": job.progress_percent(),
+        "message": _status_message(job),
+        "filename": job.filename,
+        "file_size_bytes": job.file_size_bytes,
+        "audio_duration_sec": job.audio_duration_sec,
+    }
+
+    if job.status == JobStatus.COMPLETED and job.result is not None:
+        payload["text"] = job.result.get("text")
+        payload["language"] = job.result.get("language")
+        payload["model"] = settings.whisper_model
+        payload["backend"] = job.result.get("backend")
+        payload["report"] = job.report
+
+    if job.status in {JobStatus.FAILED, JobStatus.TIMEOUT}:
+        payload["success"] = False
+        payload["error"] = job.error_code or "error"
+        payload["message"] = job.error_message or _status_message(job)
+
+    return payload
+
+
+async def _run_job(job_id: str) -> None:
+    job = await job_store.get(job_id)
+    if job is None:
+        return
+
+    await job_store.mark_processing(job_id)
+    job = await job_store.get(job_id)
+    if job is None:
+        return
+
+    started = perf_counter()
+    try:
+        result = await transcribe_audio(job.temp_path)
+        elapsed_ms = int((perf_counter() - started) * 1000)
+        text = result["text"]
+        report = {
+            "file_size_bytes": job.file_size_bytes,
+            "file_size_human": _format_bytes(job.file_size_bytes),
+            "transcription_ms": elapsed_ms,
+            "transcription_seconds": round(elapsed_ms / 1000, 2),
+            "text_stats": _text_stats(text),
+        }
+        await job_store.mark_completed(job_id, result=result, report=report)
+    except TranscriptionError as exc:
+        status = JobStatus.TIMEOUT if exc.code == "timeout" else JobStatus.FAILED
+        await job_store.mark_failed(job_id, code=exc.code, message=exc.message, status=status)
+    except Exception:
+        await job_store.mark_failed(
+            job_id,
+            code="transcription_failed",
+            message="Transcription failed.",
+        )
+    finally:
+        finished_job = await job_store.get(job_id)
+        if finished_job is not None and finished_job.started_at is not None:
+            append_timing_log(finished_job, model=settings.whisper_model)
+        if job.temp_path.exists():
+            job.temp_path.unlink(missing_ok=True)
+
+
+@app.on_event("startup")
+async def startup_cleanup() -> None:
+    await job_store.cleanup_expired(settings.job_ttl_hours)
+
+
 @app.get("/")
 async def index() -> FileResponse:
     index_path = static_dir / "index.html"
@@ -94,7 +185,21 @@ async def health() -> dict[str, str]:
     return {"status": "ok"}
 
 
-@app.post("/api/transcribe")
+@app.get("/api/jobs/{job_id}")
+async def get_job(job_id: str) -> dict[str, object]:
+    job = await job_store.get(job_id)
+    if job is None:
+        raise HTTPException(
+            status_code=404,
+            detail={
+                "code": "job_not_found",
+                "message": "Job not found.",
+            },
+        )
+    return _job_payload(job)
+
+
+@app.post("/api/transcribe", status_code=202)
 async def transcribe(request: Request, audio: UploadFile = File(...)) -> dict[str, object]:
     _validate_content_length(request)
 
@@ -110,11 +215,13 @@ async def transcribe(request: Request, audio: UploadFile = File(...)) -> dict[st
 
     max_bytes = settings.max_upload_mb * 1024 * 1024
     consumed = 0
+    filename = audio.filename or f"upload.{extension or 'tmp'}"
 
     suffix = f".{extension}" if extension else ".tmp"
     with NamedTemporaryFile(delete=False, suffix=suffix, prefix="upload-") as temp:
         temp_path = Path(temp.name)
 
+    job_created = False
     try:
         with temp_path.open("wb") as out:
             while True:
@@ -141,34 +248,35 @@ async def transcribe(request: Request, audio: UploadFile = File(...)) -> dict[st
                 },
             )
 
-        started = perf_counter()
-        try:
-            result = await transcribe_audio(temp_path)
-        except TranscriptionError as exc:
-            raise HTTPException(
-                status_code=500 if exc.code in {"transcription_failed", "timeout", "python_backend_unavailable"} else 400,
-                detail={"code": exc.code, "message": exc.message},
-            ) from exc
-        elapsed_ms = int((perf_counter() - started) * 1000)
-        text = result["text"]
+        audio_duration_sec = get_audio_duration_sec(temp_path)
+        estimated_seconds, factor_used = estimate_transcription_seconds(
+            model=settings.whisper_model,
+            audio_duration_sec=audio_duration_sec,
+            file_size_bytes=consumed,
+        )
+
+        job = await job_store.create(
+            filename=filename,
+            file_size_bytes=consumed,
+            audio_duration_sec=audio_duration_sec,
+            estimated_seconds=estimated_seconds,
+            factor_used=factor_used,
+            temp_path=temp_path,
+        )
+        job_created = True
+
+        asyncio.create_task(_run_job(job.id))
 
         return {
             "success": True,
-            "text": text,
-            "language": result.get("language"),
-            "model": settings.whisper_model,
-            "backend": result.get("backend"),
-            "report": {
-                "file_size_bytes": consumed,
-                "file_size_human": _format_bytes(consumed),
-                "transcription_ms": elapsed_ms,
-                "transcription_seconds": round(elapsed_ms / 1000, 2),
-                "text_stats": _text_stats(text),
-            },
+            "job_id": job.id,
+            "status": job.status.value,
+            "estimated_seconds": estimated_seconds,
+            "status_url": f"/api/jobs/{job.id}",
         }
     finally:
         await audio.close()
-        if temp_path.exists():
+        if not job_created and temp_path.exists():
             temp_path.unlink(missing_ok=True)
 
 
@@ -182,8 +290,6 @@ async def http_exception_handler(_: Request, exc: HTTPException):
 
 
 def fastapi_json_response(status_code: int, detail: dict[str, str]):
-    from fastapi.responses import JSONResponse
-
     return JSONResponse(
         status_code=status_code,
         content={
