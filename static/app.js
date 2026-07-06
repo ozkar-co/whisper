@@ -5,10 +5,13 @@ const fileInput = document.getElementById("audio-file-input");
 const uploadFileName = document.getElementById("upload-file-name");
 const recordBtn = document.getElementById("record-btn");
 const uploadCorner = document.getElementById("upload-corner");
+const recorderText = document.getElementById("recorder-text");
 const recordIcon = document.getElementById("record-icon");
 const loading = document.getElementById("loading");
 const recordStatus = document.getElementById("record-status");
-const progressPanel = document.getElementById("progress-panel");
+const workflowPanel = document.getElementById("workflow-panel");
+const confirmView = document.getElementById("confirm-view");
+const progressView = document.getElementById("progress-view");
 const progressFill = document.getElementById("progress-fill");
 const progressTimer = document.getElementById("progress-timer");
 const progressMessage = document.getElementById("progress-message");
@@ -20,7 +23,6 @@ const resultError = document.getElementById("result-error");
 const copyBtn = document.getElementById("copy-btn");
 const historyEmpty = document.getElementById("history-empty");
 const historyTable = document.getElementById("history-table");
-const confirmModal = document.getElementById("confirm-modal");
 const confirmFilename = document.getElementById("confirm-filename");
 const modelSelect = document.getElementById("model-select");
 const confirmAudioDuration = document.getElementById("confirm-audio-duration");
@@ -37,6 +39,7 @@ let mediaRecorder = null;
 let recordingChunks = [];
 let mediaStream = null;
 let isRecording = false;
+let isConfirming = false;
 let isTranscribing = false;
 let pollTimer = null;
 let activeJobId = null;
@@ -44,6 +47,7 @@ let pendingBlob = null;
 let pendingFileName = "";
 let pendingDurationSec = null;
 let estimateRequestId = 0;
+let confirmGeneration = 0;
 
 function clearResult() {
   resultError.classList.add("hidden");
@@ -172,14 +176,45 @@ async function fetchEstimate(model) {
   return payload;
 }
 
-function setConfirmLoading(loading) {
-  modelSelect.disabled = loading;
-  confirmSubmitBtn.disabled = loading;
-  confirmCancelBtn.disabled = loading;
+function updateIdleControls() {
+  const busy = isConfirming || isTranscribing;
+  recordBtn.classList.toggle("hidden", busy);
+  uploadCorner.classList.toggle("hidden", busy);
+  recorderText.classList.toggle("hidden", busy);
+  recordBtn.disabled = isTranscribing || isConfirming;
+  fileInput.disabled = isTranscribing || isConfirming;
+}
+
+function showConfirmView() {
+  workflowPanel.classList.remove("hidden");
+  confirmView.classList.remove("hidden");
+  progressView.classList.add("hidden");
+  loading.classList.add("hidden");
+  updateIdleControls();
+}
+
+function showProgressView() {
+  workflowPanel.classList.remove("hidden");
+  confirmView.classList.add("hidden");
+  progressView.classList.remove("hidden");
+  loading.classList.add("hidden");
+  updateIdleControls();
+}
+
+function hideWorkflowPanel() {
+  workflowPanel.classList.add("hidden");
+  confirmView.classList.add("hidden");
+  progressView.classList.add("hidden");
+  updateIdleControls();
+}
+
+function setConfirmLoading(loadingState) {
+  modelSelect.disabled = loadingState;
+  confirmSubmitBtn.disabled = loadingState;
 }
 
 async function refreshConfirmEstimate() {
-  if (!pendingBlob) {
+  if (!pendingBlob || !isConfirming) {
     return;
   }
   const requestId = ++estimateRequestId;
@@ -192,14 +227,14 @@ async function refreshConfirmEstimate() {
 
   try {
     const payload = await fetchEstimate(modelSelect.value);
-    if (requestId !== estimateRequestId || !pendingBlob) {
+    if (requestId !== estimateRequestId || !isConfirming || !pendingBlob) {
       return;
     }
     confirmEstimated.textContent = `~${formatDurationLabel(payload.estimated_seconds)}`;
     confirmQueueCount.textContent = String(payload.queue_count ?? 0);
     confirmWaitStart.textContent = `~${formatDurationLabel(payload.wait_until_start_seconds)}`;
   } catch (error) {
-    if (requestId !== estimateRequestId) {
+    if (requestId !== estimateRequestId || !isConfirming) {
       return;
     }
     confirmEstimated.textContent = "—";
@@ -214,46 +249,64 @@ async function refreshConfirmEstimate() {
   }
 }
 
-function closeConfirmModal() {
-  confirmModal.classList.add("hidden");
+function closeConfirmPanel() {
+  confirmGeneration += 1;
+  estimateRequestId += 1;
+  isConfirming = false;
   pendingBlob = null;
   pendingFileName = "";
   pendingDurationSec = null;
   confirmError.classList.add("hidden");
   confirmError.textContent = "";
   setConfirmLoading(false);
+  hideWorkflowPanel();
+  recordStatus.textContent = "Listo para grabar";
+  uploadFileName.textContent = "o sube un archivo para transcribir al instante";
 }
 
-async function openConfirmModal(blob, fileNameHint = "recording.webm") {
-  if (isTranscribing) {
+async function openConfirmPanel(blob, fileNameHint = "recording.webm") {
+  if (isTranscribing || isConfirming) {
     return;
   }
   if (!validateSize(blob)) {
     return;
   }
 
+  const generation = ++confirmGeneration;
+  recordStatus.textContent = "Preparando audio...";
+
   pendingBlob = blob;
   pendingFileName = blob.name || fileNameHint || `recording.${mimeToExtension(blob.type)}`;
   pendingDurationSec = await getAudioDurationSec(blob);
 
+  if (generation !== confirmGeneration || !pendingBlob) {
+    return;
+  }
+
+  isConfirming = true;
   modelSelect.value = DEFAULT_MODEL;
   confirmFilename.textContent = stripExtension(pendingFileName);
   confirmAudioDuration.textContent = pendingDurationSec
     ? formatDurationLabel(pendingDurationSec)
     : "Desconocida";
 
-  confirmModal.classList.remove("hidden");
+  showConfirmView();
+  recordStatus.textContent = "Revisa y encola";
   await refreshConfirmEstimate();
 }
 
-async function submitConfirmModal() {
-  if (!pendingBlob || confirmSubmitBtn.disabled) {
+async function submitConfirmPanel() {
+  if (!pendingBlob || !isConfirming || confirmSubmitBtn.disabled) {
     return;
   }
   const blob = pendingBlob;
   const fileName = pendingFileName;
   const model = modelSelect.value;
-  closeConfirmModal();
+  isConfirming = false;
+  pendingBlob = null;
+  pendingFileName = "";
+  pendingDurationSec = null;
+  hideWorkflowPanel();
   await transcribeBlob(blob, fileName, model);
 }
 
@@ -387,19 +440,13 @@ function clearJobUrl() {
 }
 
 function showProgressPanel(jobId, estimatedSeconds) {
-  progressPanel.classList.remove("hidden");
-  loading.classList.add("hidden");
+  showProgressView();
   progressFill.style.width = "0%";
   progressTimer.textContent = `00:00 / ~${formatClock(estimatedSeconds)}`;
   progressMessage.textContent = "Transcribiendo...";
   const jobUrl = `${window.location.origin}${window.location.pathname}?job=${jobId}`;
   jobLink.href = jobUrl;
   jobLink.textContent = jobUrl;
-}
-
-function hideProgressPanel() {
-  progressPanel.classList.add("hidden");
-  progressFill.style.width = "0%";
 }
 
 function stopPolling() {
@@ -411,16 +458,11 @@ function stopPolling() {
 
 function setTranscribingState(active) {
   isTranscribing = active;
-  recordBtn.disabled = active;
-  fileInput.disabled = active;
-  recordBtn.classList.toggle("hidden", active);
-  uploadCorner.classList.toggle("hidden", active);
-  if (active) {
-    loading.classList.remove("hidden");
-  } else {
+  if (!active) {
+    hideWorkflowPanel();
     loading.classList.add("hidden");
-    hideProgressPanel();
   }
+  updateIdleControls();
 }
 
 function updateProgressUI(payload) {
@@ -480,28 +522,25 @@ async function pollJob(jobId) {
       activeJobId = null;
       clearJobUrl();
       showError(payload.message || "No se pudo transcribir el audio.");
-      if (!isRecording) {
-        recordStatus.textContent = "Listo para grabar";
-      }
+      recordStatus.textContent = "Listo para grabar";
     }
   } catch (error) {
     stopPolling();
     setTranscribingState(false);
     activeJobId = null;
     showError("Error de red al consultar el estado del proceso.");
-    if (!isRecording) {
-      recordStatus.textContent = "Listo para grabar";
-    }
+    recordStatus.textContent = "Listo para grabar";
   }
 }
 
 function startJobTracking(jobId, estimatedSeconds) {
   stopPolling();
   activeJobId = jobId;
-  setTranscribingState(true);
+  isTranscribing = true;
   showProgressPanel(jobId, estimatedSeconds);
   setJobUrl(jobId);
   recordStatus.textContent = "Transcribiendo...";
+  updateIdleControls();
 
   pollJob(jobId);
   pollTimer = setInterval(() => {
@@ -523,8 +562,10 @@ async function transcribeBlob(blob, fileNameHint = "recording.webm", model = DEF
   }
 
   clearResult();
-  setTranscribingState(true);
+  isTranscribing = true;
+  showProgressView();
   recordStatus.textContent = "Subiendo audio...";
+  updateIdleControls();
 
   const formData = new FormData();
   const fileName = blob.name || fileNameHint || `recording.${mimeToExtension(blob.type)}`;
@@ -541,6 +582,7 @@ async function transcribeBlob(blob, fileNameHint = "recording.webm", model = DEF
     if (!response.ok || !payload.success || !payload.job_id) {
       setTranscribingState(false);
       showError(payload.message || "No se pudo iniciar la transcripcion.");
+      recordStatus.textContent = "Listo para grabar";
       return;
     }
 
@@ -548,6 +590,7 @@ async function transcribeBlob(blob, fileNameHint = "recording.webm", model = DEF
   } catch (error) {
     setTranscribingState(false);
     showError("Error de red al contactar el servidor.");
+    recordStatus.textContent = "Listo para grabar";
   }
 }
 
@@ -575,7 +618,7 @@ function pickSupportedRecordingMime() {
 }
 
 async function startRecording() {
-  if (isTranscribing) {
+  if (isTranscribing || isConfirming) {
     return;
   }
   clearResult();
@@ -605,14 +648,17 @@ async function startRecording() {
     }
   };
 
-  mediaRecorder.onstop = () => {
+  mediaRecorder.onstop = async () => {
     const type = mediaRecorder.mimeType || "audio/webm";
     const recordedBlob = new Blob(recordingChunks, { type });
     const ext = mimeToExtension(type);
     const fileName = `recording.${ext}`;
-    recordStatus.textContent = `Grabado ${Math.max(1, Math.round(recordedBlob.size / 1024))} KB`;
     stopTracks();
-    openConfirmModal(recordedBlob, fileName);
+    isRecording = false;
+    recordBtn.classList.remove("recording");
+    recordIcon.textContent = "●";
+    recordBtn.setAttribute("aria-label", "Iniciar grabacion");
+    await openConfirmPanel(recordedBlob, fileName);
   };
 
   mediaRecorder.start();
@@ -640,15 +686,10 @@ function stopRecording() {
   if (mediaRecorder.state !== "inactive") {
     mediaRecorder.stop();
   }
-  isRecording = false;
-  recordBtn.classList.remove("recording");
-  recordIcon.textContent = "●";
-  recordBtn.setAttribute("aria-label", "Iniciar grabacion");
-  recordStatus.textContent = "Procesando audio...";
 }
 
 recordBtn.addEventListener("click", async () => {
-  if (isTranscribing) {
+  if (isTranscribing || isConfirming) {
     return;
   }
   if (isRecording) {
@@ -665,7 +706,7 @@ fileInput.addEventListener("change", async () => {
     return;
   }
   uploadFileName.textContent = `Archivo: ${selectedFile.name}`;
-  await openConfirmModal(selectedFile, selectedFile.name);
+  await openConfirmPanel(selectedFile, selectedFile.name);
   fileInput.value = "";
 });
 
@@ -673,15 +714,8 @@ modelSelect.addEventListener("change", () => {
   refreshConfirmEstimate();
 });
 
-confirmCancelBtn.addEventListener("click", closeConfirmModal);
-confirmSubmitBtn.addEventListener("click", submitConfirmModal);
-confirmModal.querySelector("[data-confirm-cancel]")?.addEventListener("click", closeConfirmModal);
-
-document.addEventListener("keydown", (event) => {
-  if (event.key === "Escape" && !confirmModal.classList.contains("hidden")) {
-    closeConfirmModal();
-  }
-});
+confirmCancelBtn.addEventListener("click", closeConfirmPanel);
+confirmSubmitBtn.addEventListener("click", submitConfirmPanel);
 
 copyBtn.addEventListener("click", async () => {
   const text = resultText.textContent || "";
@@ -702,7 +736,7 @@ copyBtn.addEventListener("click", async () => {
 function resumeJobFromUrl() {
   const params = new URLSearchParams(window.location.search);
   const jobId = params.get("job");
-  if (!jobId || isTranscribing) {
+  if (!jobId || isTranscribing || isConfirming) {
     return;
   }
   clearResult();
@@ -711,5 +745,6 @@ function resumeJobFromUrl() {
 
 clearResult();
 recordStatus.textContent = "Listo para grabar";
+updateIdleControls();
 refreshHistory();
 resumeJobFromUrl();
