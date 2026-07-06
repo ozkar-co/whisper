@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import threading
 from pathlib import Path
 from typing import Any
 
@@ -15,37 +16,39 @@ class TranscriptionError(Exception):
 
 
 _model_cache: dict[str, Any] = {}
+_transcribe_lock = threading.Lock()
 
 
 def _transcribe_with_python_sync(audio_path: Path) -> dict[str, str | None]:
-    try:
-        import whisper  # type: ignore
-    except Exception as exc:  # pragma: no cover
-        raise TranscriptionError("python_backend_unavailable", "Python Whisper backend is unavailable.") from exc
+    with _transcribe_lock:
+        try:
+            import whisper  # type: ignore
+        except Exception as exc:  # pragma: no cover
+            raise TranscriptionError("python_backend_unavailable", "Python Whisper backend is unavailable.") from exc
 
-    model = _model_cache.get(settings.whisper_model)
-    if model is None:
-        model = whisper.load_model(settings.whisper_model)
-        _model_cache[settings.whisper_model] = model
+        model = _model_cache.get(settings.whisper_model)
+        if model is None:
+            model = whisper.load_model(settings.whisper_model)
+            _model_cache[settings.whisper_model] = model
 
-    kwargs: dict[str, Any] = {}
-    if settings.whisper_language:
-        kwargs["language"] = settings.whisper_language
+        kwargs: dict[str, Any] = {}
+        if settings.whisper_language:
+            kwargs["language"] = settings.whisper_language
 
-    # Avoid noisy warning on CPU-only servers.
-    try:
-        import torch  # type: ignore
+        # Avoid noisy warning on CPU-only servers.
+        try:
+            import torch  # type: ignore
 
-        kwargs["fp16"] = bool(torch.cuda.is_available())
-    except Exception:
-        kwargs["fp16"] = False
+            kwargs["fp16"] = bool(torch.cuda.is_available())
+        except Exception:
+            kwargs["fp16"] = False
 
-    result = model.transcribe(str(audio_path), **kwargs)
-    text = (result.get("text") or "").strip()
-    language = result.get("language")
-    if not text:
-        raise TranscriptionError("empty_transcription", "No speech was detected in the provided audio.")
-    return {"text": text, "language": language}
+        result = model.transcribe(str(audio_path), **kwargs)
+        text = (result.get("text") or "").strip()
+        language = result.get("language")
+        if not text:
+            raise TranscriptionError("empty_transcription", "No speech was detected in the provided audio.")
+        return {"text": text, "language": language}
 
 
 async def transcribe_with_python(

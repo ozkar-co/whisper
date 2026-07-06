@@ -1,8 +1,5 @@
 from __future__ import annotations
 
-import asyncio
-import re
-from time import perf_counter
 from pathlib import Path
 from tempfile import NamedTemporaryFile
 
@@ -14,8 +11,7 @@ from fastapi.staticfiles import StaticFiles
 from .audio_meta import estimate_transcription_seconds, get_audio_duration_sec
 from .config import settings
 from .jobs import Job, JobStatus, job_store
-from .timing_log import append_timing_log
-from .transcriber import TranscriptionError, transcribe_audio
+from .worker import transcription_worker
 
 
 app = FastAPI(title="Whisper Transcription MVP")
@@ -58,31 +54,6 @@ def _extract_extension(filename: str | None) -> str:
     if not filename or "." not in filename:
         return ""
     return filename.rsplit(".", 1)[-1].lower().strip()
-
-
-def _format_bytes(size_bytes: int) -> str:
-    units = ["B", "KB", "MB", "GB"]
-    value = float(size_bytes)
-    for unit in units:
-        if value < 1024 or unit == units[-1]:
-            if unit == "B":
-                return f"{int(value)} {unit}"
-            return f"{value:.2f} {unit}"
-        value /= 1024
-    return f"{size_bytes} B"
-
-
-def _text_stats(text: str) -> dict[str, int]:
-    words = len(re.findall(r"\S+", text))
-    characters = len(text)
-    characters_no_spaces = len(re.sub(r"\s+", "", text))
-    lines = len(text.splitlines()) if text else 0
-    return {
-        "words": words,
-        "characters": characters,
-        "characters_no_spaces": characters_no_spaces,
-        "lines": lines,
-    }
 
 
 def _status_message(job: Job) -> str:
@@ -135,49 +106,10 @@ def _job_payload(job: Job) -> dict[str, object]:
     return payload
 
 
-async def _run_job(job_id: str) -> None:
-    job = await job_store.get(job_id)
-    if job is None:
-        return
-
-    await job_store.mark_processing(job_id)
-    job = await job_store.get(job_id)
-    if job is None:
-        return
-
-    started = perf_counter()
-    try:
-        result = await transcribe_audio(job.temp_path)
-        elapsed_ms = int((perf_counter() - started) * 1000)
-        text = result["text"]
-        report = {
-            "file_size_bytes": job.file_size_bytes,
-            "file_size_human": _format_bytes(job.file_size_bytes),
-            "transcription_ms": elapsed_ms,
-            "transcription_seconds": round(elapsed_ms / 1000, 2),
-            "text_stats": _text_stats(text),
-        }
-        await job_store.mark_completed(job_id, result=result, report=report)
-    except TranscriptionError as exc:
-        status = JobStatus.TIMEOUT if exc.code == "timeout" else JobStatus.FAILED
-        await job_store.mark_failed(job_id, code=exc.code, message=exc.message, status=status)
-    except Exception:
-        await job_store.mark_failed(
-            job_id,
-            code="transcription_failed",
-            message="Transcription failed.",
-        )
-    finally:
-        finished_job = await job_store.get(job_id)
-        if finished_job is not None and finished_job.started_at is not None:
-            append_timing_log(finished_job, model=settings.whisper_model)
-        if job.temp_path.exists():
-            job.temp_path.unlink(missing_ok=True)
-
-
 @app.on_event("startup")
 async def startup_cleanup() -> None:
     await job_store.cleanup_expired(settings.job_ttl_hours)
+    transcription_worker.start()
 
 
 @app.get("/")
@@ -296,7 +228,7 @@ async def transcribe(request: Request, audio: UploadFile = File(...)) -> dict[st
         )
         job_created = True
 
-        asyncio.create_task(_run_job(job.id))
+        await transcription_worker.enqueue(job.id)
 
         return {
             "success": True,

@@ -275,11 +275,14 @@ function updateProgressUI(payload) {
   const elapsed = toNumber(payload.elapsed_seconds) || 0;
   const estimated = toNumber(payload.estimated_seconds) || 0;
   const percent = toNumber(payload.progress_percent) || 0;
+  const isQueued = payload.status === "queued";
 
-  progressFill.style.width = `${Math.min(100, Math.max(0, percent))}%`;
-  progressTimer.textContent = `${formatClock(elapsed)} / ~${formatClock(estimated)}`;
-  progressMessage.textContent = payload.message || "Transcribiendo...";
-  recordStatus.textContent = payload.message || "Transcribiendo...";
+  progressFill.style.width = isQueued ? "0%" : `${Math.min(100, Math.max(0, percent))}%`;
+  progressTimer.textContent = isQueued
+    ? `En cola · ~${formatClock(estimated)}`
+    : `${formatClock(elapsed)} / ~${formatClock(estimated)}`;
+  progressMessage.textContent = payload.message || (isQueued ? "En cola..." : "Transcribiendo...");
+  recordStatus.textContent = payload.message || (isQueued ? "En cola..." : "Transcribiendo...");
 }
 
 async function pollJob(jobId) {
@@ -304,6 +307,7 @@ async function pollJob(jobId) {
       setTranscribingState(false);
       activeJobId = null;
       clearJobUrl();
+      await refreshHistory();
 
       const report = payload.report || {};
       const textStats = report.text_stats || {};
