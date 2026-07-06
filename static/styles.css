@@ -390,6 +390,13 @@ pre {
   text-align: right;
 }
 
+.history-main {
+  min-width: 0;
+  display: flex;
+  align-items: baseline;
+  gap: 0.45rem;
+}
+
 .history-link {
   min-width: 0;
   overflow: hidden;
@@ -399,6 +406,14 @@ pre {
   font-size: 0.92rem;
   font-weight: 700;
   text-decoration: none;
+}
+
+.history-model {
+  flex-shrink: 0;
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: var(--ink-soft);
+  text-transform: lowercase;
 }
 
 .history-link:hover {

@@ -48,6 +48,7 @@ let pendingFileName = "";
 let pendingDurationSec = null;
 let estimateRequestId = 0;
 let confirmGeneration = 0;
+let recordingStartedAt = null;
 
 function clearResult() {
   resultError.classList.add("hidden");
@@ -142,16 +143,27 @@ function getAudioDurationSec(blob) {
   return new Promise((resolve) => {
     const url = URL.createObjectURL(blob);
     const audio = new Audio();
-    audio.preload = "metadata";
-    audio.onloadedmetadata = () => {
+
+    const finish = (duration) => {
       URL.revokeObjectURL(url);
-      const duration = audio.duration;
       resolve(Number.isFinite(duration) && duration > 0 ? duration : null);
     };
-    audio.onerror = () => {
-      URL.revokeObjectURL(url);
-      resolve(null);
+
+    audio.preload = "metadata";
+    audio.onloadedmetadata = () => {
+      if (!Number.isFinite(audio.duration) || audio.duration === Infinity) {
+        audio.currentTime = 1e10;
+        audio.ontimeupdate = () => {
+          audio.ontimeupdate = null;
+          const duration = audio.duration;
+          audio.currentTime = 0;
+          finish(duration);
+        };
+        return;
+      }
+      finish(audio.duration);
     };
+    audio.onerror = () => finish(null);
     audio.src = url;
   });
 }
@@ -264,7 +276,7 @@ function closeConfirmPanel() {
   uploadFileName.textContent = "o sube un archivo para transcribir al instante";
 }
 
-async function openConfirmPanel(blob, fileNameHint = "recording.webm") {
+async function openConfirmPanel(blob, fileNameHint = "recording.webm", durationHint = null) {
   if (isTranscribing || isConfirming) {
     return;
   }
@@ -277,7 +289,7 @@ async function openConfirmPanel(blob, fileNameHint = "recording.webm") {
 
   pendingBlob = blob;
   pendingFileName = blob.name || fileNameHint || `recording.${mimeToExtension(blob.type)}`;
-  pendingDurationSec = await getAudioDurationSec(blob);
+  pendingDurationSec = durationHint ?? (await getAudioDurationSec(blob));
 
   if (generation !== confirmGeneration || !pendingBlob) {
     return;
@@ -383,10 +395,20 @@ function renderHistory(jobs) {
     whenCell.className = "history-when";
     whenCell.textContent = formatHistoryWhen(job.created_at);
 
+    const mainCell = document.createElement("div");
+    mainCell.className = "history-main";
+
     const link = document.createElement("a");
     link.className = "history-link";
     link.href = `/?job=${encodeURIComponent(job.job_id)}`;
     link.textContent = stripExtension(job.filename);
+
+    const modelBadge = document.createElement("span");
+    modelBadge.className = "history-model";
+    modelBadge.textContent = job.model || "—";
+
+    mainCell.appendChild(link);
+    mainCell.appendChild(modelBadge);
 
     const deleteBtn = document.createElement("button");
     deleteBtn.type = "button";
@@ -397,7 +419,7 @@ function renderHistory(jobs) {
     });
 
     row.appendChild(whenCell);
-    row.appendChild(link);
+    row.appendChild(mainCell);
     row.appendChild(deleteBtn);
     historyTable.appendChild(row);
   }
@@ -653,15 +675,20 @@ async function startRecording() {
     const recordedBlob = new Blob(recordingChunks, { type });
     const ext = mimeToExtension(type);
     const fileName = `recording.${ext}`;
+    const recordedDurationSec = recordingStartedAt
+      ? Math.max(0.1, (Date.now() - recordingStartedAt) / 1000)
+      : null;
+    recordingStartedAt = null;
     stopTracks();
     isRecording = false;
     recordBtn.classList.remove("recording");
     recordIcon.textContent = "●";
     recordBtn.setAttribute("aria-label", "Iniciar grabacion");
-    await openConfirmPanel(recordedBlob, fileName);
+    await openConfirmPanel(recordedBlob, fileName, recordedDurationSec);
   };
 
   mediaRecorder.start();
+  recordingStartedAt = Date.now();
   isRecording = true;
   recordBtn.classList.add("recording");
   recordIcon.textContent = "■";

@@ -91,6 +91,7 @@ def _job_summary(job: Job) -> dict[str, object]:
     return {
         "job_id": job.id,
         "filename": job.filename,
+        "model": job.model,
         "created_at": job.created_at.isoformat().replace("+00:00", "Z"),
     }
 
