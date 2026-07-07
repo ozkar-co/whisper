@@ -163,6 +163,8 @@ async def estimate_transcription(body: EstimateRequest) -> dict[str, object]:
         file_size_bytes=body.file_size_bytes,
     )
     queue_count, wait_until_start_seconds = await get_queue_wait_seconds()
+    timeout_sec = settings.whisper_timeout_sec
+    exceeds_timeout = timeout_sec > 0 and estimated_seconds > timeout_sec
 
     return {
         "success": True,
@@ -171,6 +173,8 @@ async def estimate_transcription(body: EstimateRequest) -> dict[str, object]:
         "factor_used": factor_used,
         "queue_count": queue_count,
         "wait_until_start_seconds": wait_until_start_seconds,
+        "whisper_timeout_sec": timeout_sec,
+        "exceeds_timeout": exceeds_timeout,
     }
 
 

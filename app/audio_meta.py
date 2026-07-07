@@ -7,19 +7,18 @@ from .config import settings
 
 
 # Processing seconds per second of audio (calibrated from data/timing_log.jsonl).
-# base: median actual/audio, 2 completed (2026-07-06).
-# tiny: median actual/audio, 3 completed (2026-07-06).
-# small: median actual/audio, 5 completed (2026-07-06).
-# medium: median actual/audio, 2 completed (2026-07-06).
-# large: median actual/audio, 2 completed (2026-07-06).
+# tiny: median actual/audio, 6 completed (outliers >0.2 excluded).
+# small: median actual/audio, 7 completed.
+# medium: median actual/audio, 6 completed.
+# large: median actual/audio, 4 completed (timeouts excluded).
 MODEL_REALTIME_FACTORS: dict[str, float] = {
-    "tiny": 0.11,
-    "base": 0.11,
+    "tiny": 0.1,
+    "base": 0.1,
     "small": 0.31,
-    "medium": 1.2,
-    "large": 2.5,
-    "large-v2": 3.5,
-    "large-v3": 3.5,
+    "medium": 1.0,
+    "large": 1.7,
+    "large-v2": 1.7,
+    "large-v3": 1.7,
 }
 
 

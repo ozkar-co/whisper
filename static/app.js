@@ -30,6 +30,7 @@ const confirmEstimated = document.getElementById("confirm-estimated");
 const confirmQueueCount = document.getElementById("confirm-queue-count");
 const confirmWaitStart = document.getElementById("confirm-wait-start");
 const confirmError = document.getElementById("confirm-error");
+const confirmWarning = document.getElementById("confirm-warning");
 const confirmCancelBtn = document.getElementById("confirm-cancel-btn");
 const confirmSubmitBtn = document.getElementById("confirm-submit-btn");
 
@@ -225,6 +226,21 @@ function setConfirmLoading(loadingState) {
   confirmSubmitBtn.disabled = loadingState;
 }
 
+function updateTimeoutWarning(payload) {
+  const timeoutSec = toNumber(payload.whisper_timeout_sec);
+  const estimatedSec = toNumber(payload.estimated_seconds);
+
+  if (timeoutSec > 0 && estimatedSec > timeoutSec) {
+    confirmWarning.textContent =
+      `El tiempo estimado (~${formatDurationLabel(estimatedSec)}) supera el limite del servidor (${formatDurationLabel(timeoutSec)}). La transcripcion podria fallar por timeout.`;
+    confirmWarning.classList.remove("hidden");
+    return;
+  }
+
+  confirmWarning.classList.add("hidden");
+  confirmWarning.textContent = "";
+}
+
 async function refreshConfirmEstimate() {
   if (!pendingBlob || !isConfirming) {
     return;
@@ -233,6 +249,8 @@ async function refreshConfirmEstimate() {
   setConfirmLoading(true);
   confirmError.classList.add("hidden");
   confirmError.textContent = "";
+  confirmWarning.classList.add("hidden");
+  confirmWarning.textContent = "";
   confirmEstimated.textContent = "Calculando...";
   confirmQueueCount.textContent = "…";
   confirmWaitStart.textContent = "…";
@@ -245,6 +263,7 @@ async function refreshConfirmEstimate() {
     confirmEstimated.textContent = `~${formatDurationLabel(payload.estimated_seconds)}`;
     confirmQueueCount.textContent = String(payload.queue_count ?? 0);
     confirmWaitStart.textContent = `~${formatDurationLabel(payload.wait_until_start_seconds)}`;
+    updateTimeoutWarning(payload);
   } catch (error) {
     if (requestId !== estimateRequestId || !isConfirming) {
       return;
@@ -252,6 +271,8 @@ async function refreshConfirmEstimate() {
     confirmEstimated.textContent = "—";
     confirmQueueCount.textContent = "—";
     confirmWaitStart.textContent = "—";
+    confirmWarning.classList.add("hidden");
+    confirmWarning.textContent = "";
     confirmError.textContent = error.message || "No se pudo estimar el tiempo.";
     confirmError.classList.remove("hidden");
   } finally {
@@ -270,6 +291,8 @@ function closeConfirmPanel() {
   pendingDurationSec = null;
   confirmError.classList.add("hidden");
   confirmError.textContent = "";
+  confirmWarning.classList.add("hidden");
+  confirmWarning.textContent = "";
   setConfirmLoading(false);
   hideWorkflowPanel();
   recordStatus.textContent = "Listo para grabar";
